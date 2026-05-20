@@ -294,14 +294,27 @@ def create_regions(
     return regions
 
 
-def create_line_crops(region: Region, output_dir: Path, min_line_height: int, merge_gap: int) -> list[LineCrop]:
+def create_line_crops(
+    region: Region,
+    output_dir: Path,
+    min_line_height: int,
+    merge_gap: int,
+    line_yolo_model=None,
+    line_target_class: int = 0,
+    line_yolo_conf: float = 0.25,
+) -> list[LineCrop]:
     region_bgr = cv2.imread(str(region.image_path))
     if region_bgr is None:
         return []
-    boxes = detect_line_boxes(region_bgr, min_line_h=min_line_height, merge_gap=merge_gap)
+    if line_yolo_model is not None:
+        boxes = predict_yolo_regions(line_yolo_model, region.image_path, line_target_class, line_yolo_conf)
+    else:
+        boxes = detect_line_boxes(region_bgr, min_line_h=min_line_height, merge_gap=merge_gap)
     if not boxes:
         h, w = region_bgr.shape[:2]
-        boxes = [(0, 0, w - 1, h - 1)]
+        boxes = detect_line_boxes(region_bgr, min_line_h=min_line_height, merge_gap=merge_gap)
+        if not boxes:
+            boxes = [(0, 0, w - 1, h - 1)]
 
     lines_dir = output_dir / "lines"
     context_dir = output_dir / "context"
@@ -414,6 +427,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--yolo-model", type=Path, default=None, help="Optional trained YOLO .pt model for handwritten-region detection.")
     parser.add_argument("--yolo-conf", type=float, default=0.25, help="Confidence threshold for --yolo-model predictions.")
     parser.add_argument("--target-class", type=int, default=1, help="YOLO class id for handwritten_region.")
+    parser.add_argument("--line-yolo-model", type=Path, default=None, help="Optional trained YOLO .pt model for line detection inside regions.")
+    parser.add_argument("--line-yolo-conf", type=float, default=0.25, help="Confidence threshold for --line-yolo-model predictions.")
+    parser.add_argument("--line-target-class", type=int, default=0, help="YOLO class id for handwritten_line.")
     parser.add_argument("--use-full-page", action="store_true", help="Skip region proposal and segment the full page.")
     parser.add_argument("--max-side", type=int, default=2200, help="Max page dimension after preprocessing.")
     parser.add_argument("--min-line-height", type=int, default=14)
@@ -444,10 +460,15 @@ def main() -> None:
     lexicon = load_lexicon(args.lexicon)
     ocr = build_ocr_backend(args)
     yolo_model = None
+    line_yolo_model = None
     if args.yolo_model is not None:
         from ultralytics import YOLO
 
         yolo_model = YOLO(str(args.yolo_model))
+    if args.line_yolo_model is not None:
+        from ultralytics import YOLO
+
+        line_yolo_model = YOLO(str(args.line_yolo_model))
 
     page_rows: list[dict] = []
     region_rows: list[dict] = []
@@ -496,14 +517,27 @@ def main() -> None:
                     "y2_page": region.y2,
                 }
             )
-            lines = create_line_crops(region, lines_root, args.min_line_height, args.merge_gap)
+            lines = create_line_crops(
+                region,
+                lines_root,
+                args.min_line_height,
+                args.merge_gap,
+                line_yolo_model=line_yolo_model,
+                line_target_class=args.line_target_class,
+                line_yolo_conf=args.line_yolo_conf,
+            )
             for line in lines:
                 line_row = {
                     "page_id": line.page_id,
                     "region_id": line.region_id,
                     "line_id": line.line_id,
                     "line_image_path": str(line.image_path),
+                    "region_image_path": str(region.image_path),
                     "context_image_path": str(line.context_path),
+                    "x1_region": line.x1_page - region.x1,
+                    "y1_region": line.y1_page - region.y1,
+                    "x2_region": line.x2_page - region.x1,
+                    "y2_region": line.y2_page - region.y1,
                     "x1_page": line.x1_page,
                     "y1_page": line.y1_page,
                     "x2_page": line.x2_page,
@@ -553,7 +587,7 @@ def main() -> None:
 
     write_csv(args.output_dir / "page_manifest.csv", page_rows, ["page_id", "source_path", "processed_path", "deskew_angle_deg", "width", "height"])
     write_csv(args.output_dir / "region_manifest.csv", region_rows, ["page_id", "region_id", "region_image_path", "x1_page", "y1_page", "x2_page", "y2_page"])
-    write_csv(args.output_dir / "line_manifest.csv", line_rows, ["page_id", "region_id", "line_id", "line_image_path", "context_image_path", "x1_page", "y1_page", "x2_page", "y2_page"])
+    write_csv(args.output_dir / "line_manifest.csv", line_rows, ["page_id", "region_id", "line_id", "line_image_path", "region_image_path", "context_image_path", "x1_region", "y1_region", "x2_region", "y2_region", "x1_page", "y1_page", "x2_page", "y2_page"])
     write_csv(args.output_dir / "word_manifest.csv", word_rows, ["page_id", "region_id", "line_id", "word_id", "word_image_path", "line_image_path", "line_context_image_path", "x1_page", "y1_page", "x2_page", "y2_page"])
     write_csv(
         args.output_dir / "predictions.csv",

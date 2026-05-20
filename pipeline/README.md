@@ -6,6 +6,13 @@ This toolkit lets you go from `data/raw` prescription photos to an annotation-re
 
 If you want to run the cropper and annotator tools inside Colab/Jupyter, use:
 
+- `phase4_region_line_segmentation_colab.ipynb`
+  - follows the thesis order for the first two stages
+  - preprocesses raw full prescription pages
+  - manually annotates handwritten-region boxes, then trains a YOLO region detector
+  - manually annotates/corrects line boxes, then trains a YOLO line detector
+  - runs region segmentation followed by line segmentation with trained models
+
 - `phase4_full_prescription_annotation_tools.ipynb`
   - preprocesses full prescription images
   - prepares CVAT/Label Studio layout annotation files
