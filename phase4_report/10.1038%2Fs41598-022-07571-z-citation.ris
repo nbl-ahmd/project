@@ -1,0 +1,21 @@
+TY  - JOUR
+AU  - Tabassum, Shaira
+AU  - Abedin, Nuren
+AU  - Rahman, Md Mahmudur
+AU  - Rahman, Md Moshiur
+AU  - Ahmed, Mostafa Taufiq
+AU  - Islam, Rafiqul
+AU  - Ahmed, Ashir
+PY  - 2022
+DA  - 2022/03/04
+TI  - An online cursive handwritten medical words recognition system for busy doctors in developing countries for ensuring efficient healthcare service delivery
+JO  - Scientific Reports
+SP  - 3601
+VL  - 12
+IS  - 1
+AB  - Doctors in developing countries are too busy to write digital prescriptions. Ninety-seven percent of Bangladeshi doctors write handwritten prescriptions, the majority of which lack legibility. Prescriptions are harder to read as they contain multiple languages. This paper proposes a machine learning approach to recognize doctors’ handwriting to create digital prescriptions. A ‘Handwritten Medical Term Corpus’ dataset is developed containing 17,431 samples of 480 medical terms. In order to improve the recognition efficiency, this paper introduces a data augmentation technique to widen the variety and increase the sample size. A sequence of line data is extracted from the augmented images of 1,591,100 samples and fed to a Bidirectional Long Short-Term Memory (LSTM) network. Data augmentation includes pattern Rotating, Shifting, and Stretching (RSS). Eight different combinations are applied to evaluate the strength of the proposed method. The result shows 93.0% average accuracy (max: 94.5%, min: 92.1%) using Bidirectional LSTM and RSS data augmentation. This accuracy is 19.6% higher than the recognition result with no data expansion. The proposed handwritten recognition technology can be installed in a smartpen for busy doctors which will recognize the writings and digitize them in real-time. It is expected that the smartpen will contribute to reduce medical errors, save medical costs and ensure healthy living in developing countries.
+SN  - 2045-2322
+UR  - https://doi.org/10.1038/s41598-022-07571-z
+DO  - 10.1038/s41598-022-07571-z
+ID  - Tabassum2022
+ER  - 

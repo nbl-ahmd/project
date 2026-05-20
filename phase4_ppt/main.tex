@@ -1,0 +1,439 @@
+\documentclass{beamer}
+\usetheme{Madrid}
+\usecolortheme{dolphin}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{tikz}
+\usepackage{hyperref}
+\usepackage{comment}
+
+\title{Medical Prescription Recognition for Efficient Healthcare Workflows}
+\author{Nabeel Ahmed \\ M240464CS}
+\institute{Guided by: Sumesh TA}
+\date{November 28, 2025}
+
+\begin{document}
+
+\begin{frame}
+\titlepage
+\end{frame}
+
+\begin{frame}{Outline}
+\tableofcontents
+\end{frame}
+
+\section{Introduction}
+
+\begin{frame}{Introduction}
+\begin{itemize}
+    \item \textbf Medication errors from illegible prescriptions are a critical healthcare challenge
+    \item WHO estimates that 1 death per million population occurs annually ($\approx$ 163,000 deaths in EU)~\cite{bhuiyan2022online}
+    \item \textbf97.1\% of doctors in developing countries still use handwritten prescriptions~\cite{bhuiyan2022online}
+    \item \textbf{Key challenges:}
+    \begin{itemize}
+        \item Mixed content documents (printed + handwritten)~\cite{fang2023improved}
+        \item Specialized medical terminology~\cite{lee2020biobert}
+        \item Multilingual requirements~\cite{pavithiran2024multilingual}
+        \item Time-critical processing needs~\cite{irjmets2024}
+    \end{itemize}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Problem Statement}
+Handwritten medical prescriptions are difficult to digitize due to inconsistent handwriting, mixed printed and handwritten regions, and frequent image quality issues. These challenges make it hard to accurately extract medication details and can lead to serious dispensing errors, as highlighted by Bhuiyan et al. \cite{bhuiyan2022online}. This project aims to develop a reliable end-to-end system that can segment prescription regions, recognize handwritten text, and validate extracted information to support safer and more efficient healthcare workflows.
+\end{frame}
+
+\section{Literature Review}
+
+\begin{frame}{Literature Review: Contd..}
+\textbf{Tabassum et al. (2022), Nature Scientific Reports~\cite{tabassum2021recognition}}
+\begin{itemize}
+    \item Created 'Handwritten Medical Term Corpus' with 17,431 samples
+    \item Introduced RSS (Rotate-Shift-Stretch) data augmentation
+    \begin{itemize}
+        \item Expanded dataset to 1,591,100 samples
+        \item Represents real-world handwriting diversity
+    \end{itemize}
+    \item Bidirectional LSTM architecture
+    \item 93.0\% average accuracy (94.5\% max)
+    \item 19.6\% improvement over non-augmented approaches
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Literature Review Contd..}
+\textbf{Pavithiran et al. (2024)~\cite{pavithiran2024multilingual}}
+\begin{itemize}
+    \item Hybrid CNN-RNN-LSTM architecture
+    \item Unicode support for multilingual prescriptions
+    \item 89\% accuracy on multi-language datasets
+\end{itemize}
+
+
+\textbf{Utkarsh Shaw et al., 2021)~\cite{utkarshaw2021}}
+  \begin{itemize}
+  \item Three-layer neural network using EMNIST dataset
+  \item 94.49\% training accuracy, 80.72\% test accuracy
+  \item Segmentation of handwritten strokes into individual characters
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Literature Review Contd..}
+\textbf{Dhar et al. (2020), Springer Multimedia Tools and Applications~\cite{dhar2020method}}
+\begin{itemize}
+    \item Novel method for separating printed and handwritten text in prescriptions
+    \item Uses gradient-based features and ensemble classifiers
+    \item Addresses critical preprocessing challenge for prescription analysis
+    \item Achieved 97.8\% classification accuracy on mixed-content documents
+\end{itemize}
+
+\textbf{Fajardo et al. (2019), IEEE HNICEM~\cite{fajardo2019doctor}}
+\begin{itemize}
+    \item Deep learning approach for cursive handwriting in medical contexts
+    \item Custom CNN architecture optimized for doctor's handwriting patterns
+    \item Demonstrated effectiveness on Philippine prescription dataset
+    \item Incorporated specialized preprocessing for varying ink intensities
+\end{itemize}
+\end{frame}
+
+\section{Proposed Methodology}
+
+\begin{frame}{System Architecture}
+\begin{center}
+\includegraphics[height=0.7\textwidth]{archetecture phase2}
+\end{center}
+\end{frame}
+
+\begin{comment}
+\begin{frame}{System Overview}
+\textbf{Three-Stage Pipeline:}
+\begin{enumerate}
+    \item Region Segmentation using YOLOv8~\cite{jocher2023ultralytics}
+    \item Handwriting Recognition using Transformer-based OCR~\cite{mishra2022trocr}
+    \item NLP Validation with Drug Database Integration~\cite{lee2020biobert}
+\end{enumerate}
+\end{frame}
+\end{comment}
+
+\begin{frame}{System Overview}
+\textbf{Five-Stage Pipeline:}
+\begin{enumerate}
+    \item Preprocessing (deskew, privacy filtering)
+    \item Region Segmentation using YOLOv8-seg~\cite{jocher2023ultralytics}
+    \item Line Segmentation (OpenCV-based)
+    \item Handwriting Recognition using TrOCR~\cite{mishra2022trocr}
+    \item NLP Validation with BioBERT + Drug Lexicon Matching~\cite{lee2020biobert}
+\end{enumerate}
+\end{frame}
+
+\begin{comment}
+    
+\begin{frame}{Data Acquisition and Preparation}
+\textbf{Datasets Used:}
+\begin{itemize}
+    \item IAM OnDB Handwriting Dataset
+    \item IEEE Handwritten/Printed Text Classification Dataset
+    \item Doctors' Handwritten Prescriptions (Huggingface)
+    \item Custom prescriptions (Indian pharmacies, manually annotated)
+\end{itemize}
+
+\textbf{RSS Data Augmentation~\cite{bhuiyan2022online}:}
+\begin{itemize}
+    \item \textbf{Rotation:} Modifying stroke orientation by small angles
+    \item \textbf{Shifting:} Adjusting stroke position within writing space
+    \item \textbf{Stretching:} Altering stroke dimensions for style variations
+\end{itemize}
+\end{frame}
+\end{comment}
+
+\begin{frame}{Data Acquisition and Preparation}
+\textbf{Datasets:}
+\begin{itemize}
+    \item IAM OnDB + HMT handwriting corpora
+    \item HuggingFace prescription datasets
+    \item IEEE Printed/Handwritten Text Dataset
+    \item \textbf{Custom dataset:} Indian prescriptions (pharmacy collection, annotated via CVAT)
+\end{itemize}
+
+\textbf{Augmentation:}
+\begin{itemize}
+    \item Rotation ($\pm$5–10$^\circ$), translation, scaling
+    \item Elastic transforms, brightness/contrast jitter
+    \item Expands limited line-level dataset for OCR
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Region Segmentation Module}
+\textbf{YOLOv8 Segmentation~\cite{jocher2023ultralytics}:}
+\begin{itemize}
+    \item Detects and segments key zones:
+    \begin{itemize}
+        \item Header (Doctor/Clinic Details)
+        \item Handwritten Region (Drugs)
+        \item Footer (Signature, Notes)
+    \end{itemize}
+    \item Trained on manually annotated data via CVAT
+    \item Outputs bounding masks used to crop handwritten sections
+    \item Faster, lightweight alternative to traditional Mask R-CNN
+\end{itemize}
+
+\begin{tikzpicture}[scale=0.6]
+\draw[fill=blue!20] (0,0) rectangle (8,1) node[pos=.5] {Footer};
+\draw[fill=red!20] (0,1.2) rectangle (8,3.5) node[pos=.5] {Handwritten Region};
+\draw[fill=green!20] (0,3.7) rectangle (8,4.7) node[pos=.5] {Header};
+\end{tikzpicture}
+\end{frame}
+
+\begin{comment}
+\begin{frame}{Handwriting Recognition Pipeline}
+\textbf{Transformer-Based OCR (TrOCR)~\cite{mishra2022trocr}:}
+\begin{itemize}
+    \item Pretrained vision encoder (ResNet/ViT) + Decoder (Transformer)
+    \item Fine-tuned on medical handwriting with RSS-augmented data
+    \item Supports long-range dependencies better than BiLSTM
+    \item Achieves better accuracy on real prescription samples
+\end{itemize}
+
+\textbf{Steps:}
+\begin{enumerate}
+    \item Segment lines using projection and clustering
+    \item Feed each line into TrOCR model
+    \item Output text sequences for each drug entry
+\end{enumerate}
+\end{frame}
+\end{comment}
+
+\begin{frame}{Handwriting Recognition Pipeline}
+\textbf{TrOCR (Transformer OCR):}
+\begin{itemize}
+    \item Pretrained vision encoder (ResNet/ViT) + Transformer decoder
+    \item Fine-tuned on IAM, HMT, and custom line-level data
+    \item Handles longer dependencies better than BiLSTM
+    \item Improved accuracy on real-world prescription handwriting
+\end{itemize}
+
+\textbf{Workflow:}
+\begin{enumerate}
+    \item Segment lines from handwritten zone
+    \item Feed line crops to TrOCR model
+    \item Output: transcribed drug names + dosage
+\end{enumerate}
+\end{frame}
+
+\begin{comment}
+\begin{frame}{NLP Validation Module}
+\textbf{BioBERT for NER~\cite{lee2020biobert}:}
+\begin{itemize}
+    \item Identifies drug names from noisy OCR output
+    \item Pre-trained on biomedical literature (PubMed abstracts, PMC articles)
+\end{itemize}
+
+\textbf{Drug Matching:}
+\begin{itemize}
+    \item Cross-checked with RxNorm and WHO Drug Dictionary
+    \item Levenshtein similarity for fuzzy matches
+\end{itemize}
+
+\textbf{Dosage Pattern Extraction:}
+\begin{itemize}
+    \item Regex-based rules for units/doses
+    \item Example: \texttt{\d+\s*(mg|ml)\s*(/day|per dose)}
+\end{itemize}
+\end{frame}
+\end{comment}
+
+\begin{frame}{NLP Validation Module}
+\textbf{BioBERT for NER:}
+\begin{itemize}
+    \item Identifies drug names, dosage units, and frequency expressions
+    \item Robust to noisy OCR outputs
+\end{itemize}
+
+\textbf{Drug Lexicon Matching:}
+\begin{itemize}
+    \item Validates predictions using RxNorm + Indian trade names
+    \item Fuzzy matching (Levenshtein) for OCR corrections
+\end{itemize}
+
+\textbf{Dosage Pattern Extraction:}
+\begin{itemize}
+    \item Regex-based parsing of structured dosage (e.g., 500 mg 1-0-1)
+\end{itemize}
+\end{frame}
+\begin{frame}{Experimental Results}
+
+\begin{columns}
+
+% ---------- LEFT COLUMN ----------
+\begin{column}{0.48\textwidth}
+\textbf{Recognition Output:}
+
+
+\vspace{0.35cm}
+\begin{figure}
+    \centering
+    % Replace "sample_output.png" with your uploaded image
+    \includegraphics[width=\linewidth]{output2.png}
+   
+\end{figure}
+
+\end{column}
+
+% ---------- RIGHT COLUMN ----------
+\begin{column}{0.48\textwidth}
+
+
+\vspace{0.35cm}
+\begin{figure}
+    \centering
+    % Replace "metrics_graph.png" with your graph image
+    \includegraphics[width=\linewidth]{output1.png}
+
+\end{figure}
+\begin{figure}
+    \centering
+    % Replace "metrics_graph.png" with your graph image
+    \includegraphics[width=\linewidth]{output3.png}
+
+\end{figure}
+
+\vspace{0.25cm}
+
+
+
+\end{column}
+
+\end{columns}
+
+\end{frame}
+
+\begin{frame}{Evaluation Metrics}
+
+\centering
+\textbf{Phase 4 OCR Module (Medicine Name Recognition)} \\
+\vspace{0.4cm}
+
+\small
+Model: \texttt{microsoft/trocr-base-handwritten} (fine-tuned) \\
+Dataset: Doctor's Handwritten Prescription BD (Testing split, $n=780$) \\
+\normalsize
+
+\begin{table}[h!]
+\centering
+\renewcommand{\arraystretch}{1.3} % row spacing
+\begin{tabular}{l c}
+\hline
+\textbf{Metric} & \textbf{Value} \\
+\hline
+Exact-Match Accuracy & 96.28\% \\
+Character Error Rate (CER) & 2.87\% \\
+Word Error Rate (WER) & 3.92\% \\
+Total Samples & 780 \\
+\hline
+\end{tabular}
+\end{table}
+
+\end{frame}
+
+
+\section{Comparison with Prior Work}
+
+\begin{frame}{Comparison with Similar Works}
+\centering
+\small
+\begin{table}[h!]
+\centering
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{p{3.1cm} p{2.4cm} c}
+\hline
+\textbf{Work} & \textbf{Reported Metric} & \textbf{Value} \\
+\hline
+Tabassum et al. (2022) & Recognition Accuracy & 93.0\% \\
+Pavithiran et al. (2024) & Recognition Accuracy & 89.0\% \\
+Utkarsh Shaw et al. (2021) & Test Accuracy & 80.72\% \\
+\textbf{This Work (Phase 4)} & \textbf{Exact-Match Accuracy} & \textbf{96.28\%} \\
+\hline
+\end{tabular}
+\end{table}
+
+\vspace{0.2cm}
+\footnotesize
+\textbf{Short Comparison:}
+\begin{itemize}
+    \item Our TrOCR-based OCR module achieves the highest recognition performance among comparable medicine-word recognition results in the reviewed studies.
+    \item We also report stricter OCR quality metrics (CER: 2.87\%, WER: 3.92\%), which were not consistently reported in prior works.
+    \item These quantitative metrics are for cropped-word OCR; the final phase adds an end-to-end prototype pipeline for page-level processing and structured extraction.
+\end{itemize}
+\end{frame}
+
+
+\begin{frame}{Work Done}
+\begin{itemize}
+    \item Collected prescriptions from Indian pharmacies.
+    \item Annotated using CVAT.
+    \item Fine-tuned TrOCR (\texttt{trocr-base-handwritten}) for handwritten medicine-name recognition
+    \item Implemented preprocessing, handwritten-region cropping, and OpenCV-based line segmentation pipeline
+    \item Added final end-to-end runner that outputs medicine, dosage, frequency, and validation status as CSV/JSON
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Final Prototype Implementation}
+\textbf{Implemented end-to-end flow:}
+\begin{enumerate}
+    \item Raw prescription image preprocessing
+    \item Handwritten-region extraction using YOLO labels or heuristic fallback
+    \item Line-level crop generation
+    \item TrOCR inference hook using the fine-tuned checkpoint
+    \item Drug lexicon matching with dosage/frequency extraction
+\end{enumerate}
+
+\vspace{0.2cm}
+\textbf{Outputs:}
+\begin{itemize}
+    \item Page, region, and line manifests
+    \item Cropped line images for review
+    \item Structured \texttt{predictions.csv}/\texttt{predictions.json}
+\end{itemize}
+\end{frame}
+
+
+\begin{frame}{Novelty in Approach}
+\begin{itemize}
+    \item \textbf{Lightweight Layout Segmentation:} Propose using YOLOv8-seg for fast segmentation of prescription regions instead of heavier models like Mask R-CNN.
+    \item \textbf{Transformer-based Handwriting Recognition:} Uses TrOCR as a modern alternative to RNNs for recognizing diverse handwritten medical text.
+    \item \textbf{Targeted RSS Augmentation:} Plan to apply Rotation, Shifting, and Stretching on line-level handwritten data to improve generalization.
+    \item \textbf{Domain-Specific NER and Validation:} Integrate medical NER (via BioBERT) with drug databases (RxNorm/WHO-DD) to validate extracted terms.
+    \item \textbf{Modular and Adaptable Pipeline:} Design an end-to-end architecture combining vision and language models tailored for semi-structured prescriptions.
+\end{itemize}
+\end{frame}
+
+
+
+
+\section{Conclusion}
+
+\begin{frame}{Conclusion}
+\textbf{Expected Advantages:}
+\begin{itemize}
+    \item Enhanced recognition capability for complex medical terminology~\cite{bhuiyan2022online}
+    \item Improved performance in practical mobile implementations~\cite{irjmets2024}
+    \item Efficient processing compared to whole-document methods~\cite{fang2023improved}
+\end{itemize}
+
+\textbf{Future Work:}
+\begin{itemize}
+    \item Expanding support for additional regional languages~\cite{pavithiran2024multilingual}
+    \item Integration with hospital electronic health record systems
+    \item Edge-based processing for privacy and reduced latency
+    \item Few-shot learning approaches to reduce annotation requirements
+    \item Larger annotated page-level test set for quantitative end-to-end evaluation
+\end{itemize}
+
+\textbf{Practical Impact:} Potential reduction in prescription interpretation errors, addressing a critical healthcare challenge that contributes to thousands of preventable adverse drug events annually~\cite{bhuiyan2022online}
+\end{frame}
+
+\begin{frame}[allowframebreaks]{References}
+\bibliographystyle{abbrv}
+\bibliography{references}
+\end{frame}
+
+\end{document}
