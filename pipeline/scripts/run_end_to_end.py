@@ -235,6 +235,28 @@ def read_yolo_regions(label_path: Path, image_shape: tuple[int, int], target_cla
     return boxes
 
 
+def predict_yolo_regions(
+    model,
+    image_path: Path,
+    target_class: int,
+    conf: float,
+) -> list[tuple[int, int, int, int]]:
+    results = model.predict(str(image_path), conf=conf, verbose=False)
+    boxes: list[tuple[int, int, int, int]] = []
+    if not results:
+        return boxes
+    result = results[0]
+    if result.boxes is None:
+        return boxes
+    for box in result.boxes:
+        cls_id = int(box.cls[0].item()) if box.cls is not None else 0
+        if cls_id != target_class:
+            continue
+        x1, y1, x2, y2 = box.xyxy[0].tolist()
+        boxes.append((int(x1), int(y1), int(x2), int(y2)))
+    return boxes
+
+
 def create_regions(
     page_path: Path,
     page_bgr: np.ndarray,
@@ -242,12 +264,18 @@ def create_regions(
     labels_dir: Path | None,
     target_class: int,
     use_full_page: bool,
+    yolo_model=None,
+    yolo_conf: float = 0.25,
 ) -> list[Region]:
     page_id = safe_id(page_path)
     boxes: list[tuple[int, int, int, int]]
     if use_full_page:
         h, w = page_bgr.shape[:2]
         boxes = [(0, 0, w - 1, h - 1)]
+    elif yolo_model is not None:
+        boxes = predict_yolo_regions(yolo_model, page_path, target_class, yolo_conf)
+        if not boxes:
+            boxes = [proposal_region_box(page_bgr)]
     elif labels_dir:
         boxes = read_yolo_regions(labels_dir / f"{page_path.stem}.txt", page_bgr.shape[:2], target_class)
         if not boxes:
@@ -383,6 +411,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input", type=Path, required=True, help="Input image or folder of prescription images.")
     parser.add_argument("--output-dir", type=Path, default=Path("data/final_demo"), help="Output folder.")
     parser.add_argument("--labels-dir", type=Path, default=None, help="Optional YOLO layout labels folder.")
+    parser.add_argument("--yolo-model", type=Path, default=None, help="Optional trained YOLO .pt model for handwritten-region detection.")
+    parser.add_argument("--yolo-conf", type=float, default=0.25, help="Confidence threshold for --yolo-model predictions.")
     parser.add_argument("--target-class", type=int, default=1, help="YOLO class id for handwritten_region.")
     parser.add_argument("--use-full-page", action="store_true", help="Skip region proposal and segment the full page.")
     parser.add_argument("--max-side", type=int, default=2200, help="Max page dimension after preprocessing.")
@@ -413,6 +443,11 @@ def main() -> None:
 
     lexicon = load_lexicon(args.lexicon)
     ocr = build_ocr_backend(args)
+    yolo_model = None
+    if args.yolo_model is not None:
+        from ultralytics import YOLO
+
+        yolo_model = YOLO(str(args.yolo_model))
 
     page_rows: list[dict] = []
     region_rows: list[dict] = []
@@ -439,7 +474,16 @@ def main() -> None:
             }
         )
 
-        regions = create_regions(page_path, processed, regions_dir, args.labels_dir, args.target_class, args.use_full_page)
+        regions = create_regions(
+            page_path,
+            processed,
+            regions_dir,
+            args.labels_dir,
+            args.target_class,
+            args.use_full_page,
+            yolo_model=yolo_model,
+            yolo_conf=args.yolo_conf,
+        )
         for region in regions:
             region_rows.append(
                 {

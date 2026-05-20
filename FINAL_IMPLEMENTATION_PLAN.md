@@ -33,15 +33,21 @@
   - Colab/Jupyter notebook for full prescription preprocessing, region/line/word crop generation, in-notebook word annotation, and custom OCR dataset export
 - `phase4_trocr_word_level.ipynb`
   - updated intro and final full-prescription pipeline section for training/evaluation continuity
+- `phase4_layout_yolo_training.ipynb`
+  - converts corrected crop boxes into a YOLO dataset and trains a learned handwritten-region detector
 - `pipeline/scripts/run_end_to_end.py`
   - preprocesses raw prescription pages
-  - proposes/crops handwritten regions using YOLO labels if provided, otherwise a heuristic fallback
+  - crops handwritten regions using a trained YOLO model, YOLO labels, or a heuristic fallback
   - segments line crops
   - segments word crops for the current word-level OCR model
   - runs OCR through TrOCR, demo text, or empty backend
   - extracts dosage and frequency with regex
   - validates medicine names using `pipeline/config/drug_lexicon.txt`
   - writes `page_manifest.csv`, `region_manifest.csv`, `line_manifest.csv`, `predictions.csv`, and `predictions.json`
+- `pipeline/scripts/prepare_yolo_layout_dataset.py`
+  - exports corrected page-level handwritten-region boxes into YOLO train/val folders
+- `pipeline/scripts/train_yolo_layout.py`
+  - trains Ultralytics YOLO on the handwritten-region layout dataset
 
 ## Example Commands
 

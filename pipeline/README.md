@@ -20,6 +20,11 @@ If you want to run the cropper and annotator tools inside Colab/Jupyter, use:
   - can be pointed to `data/custom_word_ocr_dataset`
   - includes the final full-prescription inference section
 
+- `phase4_layout_yolo_training.ipynb`
+  - converts corrected handwritten-region boxes to YOLO format
+  - trains a YOLO handwritten-region detector
+  - lets the final pipeline crop with a trained model instead of heuristic cropping
+
 ## Key Decision (Your Question)
 
 `header/footer/handwriting` segmentation should be done **before** doctor annotation.
@@ -269,6 +274,39 @@ The runner outputs:
 - cropped region and line images for presentation screenshots
 
 It uses YOLO labels if `--labels-dir data/processed/layout_yolo_labels` is provided. Without labels, it uses a heuristic handwritten-region proposal so the rest of the pipeline can still be demonstrated.
+
+For more accurate cropping, train a YOLO layout detector from corrected boxes:
+
+```bash
+python3 pipeline/scripts/prepare_yolo_layout_dataset.py \
+  --page-manifest data/processed/page_manifest.csv \
+  --region-manifest data/processed/region_manifest.csv \
+  --output-dir data/layout_yolo_dataset
+
+python3 -m pip install -r pipeline/requirements-layout.txt
+
+python3 pipeline/scripts/train_yolo_layout.py \
+  --data-yaml data/layout_yolo_dataset/data.yaml \
+  --model yolov8n.pt \
+  --epochs 50 \
+  --imgsz 960 \
+  --batch 8
+```
+
+Then run the final pipeline with the trained model:
+
+```bash
+python3 pipeline/scripts/run_end_to_end.py \
+  --input data/raw/1.jpg \
+  --output-dir data/final_demo_yolo \
+  --yolo-model runs/layout/handwritten_region_yolo/weights/best.pt \
+  --target-class 0 \
+  --ocr-backend trocr \
+  --ocr-unit word \
+  --trocr-model /path/to/fine_tuned/best_model
+```
+
+Use `--target-class 0` for a one-class model trained with `prepare_yolo_layout_dataset.py`. Use `--target-class 1` only for CVAT labels whose class order is `header, handwritten_region, footer`.
 
 To test only the post-OCR validation stage:
 
