@@ -6,6 +6,16 @@ This toolkit lets you go from `data/raw` prescription photos to an annotation-re
 
 If you want to run the cropper and annotator tools inside Colab/Jupyter, use:
 
+In Colab, run the first setup cell before any install or pipeline cell. The notebooks now mount Google Drive, clone/pull this repository into:
+
+`/content/drive/MyDrive/phase4_project/repo`
+
+Keep raw prescription images in:
+
+`/content/drive/MyDrive/phase4_project/repo/data/raw`
+
+All generated crops, manifests, models, and processed files will also stay under Google Drive, so they persist after the Colab runtime disconnects.
+
 - `phase4_region_line_segmentation_colab.ipynb`
   - follows the thesis order for the first two stages
   - preprocesses raw full prescription pages
