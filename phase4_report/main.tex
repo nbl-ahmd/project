@@ -60,7 +60,7 @@ I express my sincere gratitude to my guide, Sumesh T. A., for the guidance, enco
 }
 
 \abstract{\OnePageChapter
-Handwritten medical prescriptions remain common in many healthcare settings and are difficult to digitize because they contain mixed printed and handwritten content, inconsistent writing styles, abbreviations, dosage patterns, and noisy mobile-phone images. This thesis presents an end-to-end framework for medical prescription recognition that converts a full prescription image into structured medication information. The proposed system performs page preprocessing, handwritten-region detection, line and word cropping, TrOCR-based medicine-name recognition, and post-OCR validation using dosage-frequency rules and drug lexicon matching. The implementation includes Streamlit and notebook-based annotation tools, a word-level dataset builder, and a YOLO layout-training workflow for improving handwritten-region crops. The OCR module was evaluated on the Doctor's Handwritten Prescription BD dataset, where a fine-tuned \texttt{microsoft/trocr-base-handwritten} model achieved 96.28\% exact-match accuracy, 2.87\% character error rate, and 3.92\% word error rate on 780 testing samples. The final system demonstrates a practical pathway from full prescription images to reviewed word-level training data and structured medication predictions, while separating quantitative OCR results from the still-expanding page-level dataset.
+Handwritten medical prescriptions remain common in many healthcare settings and are difficult to digitize because they contain mixed printed and handwritten content, inconsistent writing styles, abbreviations, dosage patterns, and noisy mobile-phone images. This thesis presents an end-to-end framework for medical prescription recognition that converts a full prescription image into structured medication information. The proposed system performs page preprocessing, handwritten-region detection, line and word cropping, TrOCR-based medicine-name recognition, and post-OCR validation using dosage-frequency rules and drug lexicon matching. The implementation includes Streamlit and notebook-based annotation tools, a word-level dataset builder, train-time handwriting augmentation, and a YOLO layout-training workflow for improving handwritten-region crops. The OCR module was trained on a combined cropped-word prescription dataset with 8274 training, 1033 validation, and 1040 testing samples before augmentation. In the latest Kaggle T4x2 fine-tuning run, \texttt{microsoft/trocr-base-handwritten} achieved 83.16\% strict exact-match accuracy, 89.06\% case-insensitive exact-match accuracy, 5.91\% character error rate, and 17.02\% word error rate on the validation split after 2500 training steps. The final system demonstrates a practical pathway from full prescription images to reviewed word-level training data and structured medication predictions, while separating quantitative OCR results from the still-expanding page-level dataset.
 }
 
 \ToCisShort
@@ -263,7 +263,7 @@ The implementation is organized around a pipeline folder containing scripts for 
 
 \section{Data Preparation}
 
-The first dataset used in this work is the Doctor's Handwritten Prescription BD dataset, which contains cropped handwritten prescription word images and labels. This dataset was used for fine-tuning and evaluating the word-level OCR model. The second data source consists of raw prescription photographs collected for the project. These raw images are used to build the final full-prescription pipeline and annotation workflow.
+The first dataset used in this work is the Doctor's Handwritten Prescription BD dataset, which contains cropped handwritten prescription word images and labels. Additional cropped medicine-word datasets were then added and merged into a single TrOCR training dataset. The combined dataset contains 8274 training samples, 1033 validation samples, and 1040 testing samples before train-time augmentation. The second data source consists of raw prescription photographs collected for the project. These raw images are used to build the final full-prescription pipeline and annotation workflow.
 
 Table \ref{tab:datasets} describes the role of each dataset in the implementation. The raw prescription images are not committed to the public repository because they may contain sensitive medical information. Instead, the repository contains scripts and notebooks that recreate processed pages, region crops, line crops, word crops, and annotation CSV files locally.
 
@@ -275,7 +275,7 @@ Table \ref{tab:datasets} describes the role of each dataset in the implementatio
 \toprule
 \textbf{Dataset} & \textbf{Role in this thesis} \\
 \midrule
-Doctor's Handwritten Prescription BD dataset & Provides cropped word images and labels for TrOCR medicine-name training and testing. \\
+Combined cropped prescription-word dataset & Provides labelled medicine-word images for TrOCR training, validation, and testing. The combined split contains 8274 training, 1033 validation, and 1040 testing samples before augmentation. \\
 Raw custom prescription images & Provides full prescription pages for preprocessing, region detection, line cropping, word cropping, and annotation tool evaluation. \\
 Drug lexicon file & Provides medicine-name candidates for post-OCR correction and validation. \\
 Corrected region boxes & Provides training labels for YOLO handwritten-region detection. \\
@@ -296,7 +296,7 @@ The initial cropper used a heuristic image-processing method that estimated the 
 
 \section{OCR Training}
 
-The OCR model is based on \texttt{microsoft/trocr-base-handwritten}. The model was fine-tuned on the medicine-name column of the cropped-word dataset. The training notebook freezes the encoder for faster training on limited hardware and fine-tunes the decoder for medicine-name generation. The evaluation uses the testing split and computes exact-match accuracy, CER, and WER.
+The OCR model is based on \texttt{microsoft/trocr-base-handwritten}. The model was fine-tuned on the medicine-name column of the combined cropped-word dataset. The current training notebook is Kaggle-ready and uses train-only image augmentation rather than storing a permanently augmented dataset. The augmentation applies handwriting-style geometric and photometric perturbations such as small rotation, translation, scaling, contrast change, blur, and noise. The final fine-tuning configuration trains the full encoder-decoder model, uses beam search during evaluation, selects the best checkpoint using exact-match accuracy, and computes exact-match accuracy, case-insensitive exact-match accuracy, CER, and WER.
 
 \section{Post-OCR Validation}
 
@@ -307,27 +307,30 @@ The post-OCR validation layer uses two mechanisms. The first mechanism extracts 
 
 \section{OCR Results}
 
-The implemented OCR module was evaluated on the testing split of the Doctor's Handwritten Prescription BD dataset. The model was fine-tuned for medicine-name recognition from pre-cropped handwritten word images. The results are shown in Table \ref{tab:ocr-results}. The exact-match accuracy of 96.28\% indicates that the word-level recognizer performs well when the input crop already contains a single medicine name. The low CER and WER values show that most mistakes are small transcription errors rather than completely unrelated outputs.
+The implemented OCR module was evaluated during fine-tuning on the validation split of the combined cropped prescription-word dataset. The model was fine-tuned for medicine-name recognition from pre-cropped handwritten word images using train-time augmentation. The latest Kaggle T4x2 run was trained for 2500 steps, corresponding to approximately 1.61 epochs over the augmented training set. The results are shown in Table \ref{tab:ocr-results}. The validation metrics improved consistently during training: strict exact-match accuracy increased from 73.18\% at step 500 to 83.16\% at step 2500, while CER decreased from 9.39\% to 5.91\%. The case-insensitive exact-match accuracy of 89.06\% is clinically relevant because capitalization differences can be corrected safely before lexicon matching.
 
 \begin{table}[h]
 \centering
-\caption{OCR results on the Doctor's Handwritten Prescription BD testing split}
+\caption{Current TrOCR validation results on the combined cropped-word dataset}
 \label{tab:ocr-results}
 \begin{tabular}{lc}
 \toprule
 \textbf{Metric} & \textbf{Value} \\
 \midrule
-Exact-match accuracy & 96.28\% \\
-Character error rate & 2.87\% \\
-Word error rate & 3.92\% \\
-Testing samples & 780 \\
+Strict exact-match accuracy & 83.16\% \\
+Case-insensitive exact-match accuracy & 89.06\% \\
+Character error rate & 5.91\% \\
+Word error rate & 17.02\% \\
+Validation loss & 0.2076 \\
+Training steps & 2500 \\
+Validation samples & 1033 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \section{Experimental Outputs}
 
-Figure \ref{fig:recognition-output} shows a representative recognition output produced during the OCR evaluation workflow. Figure \ref{fig:metric-output-one} and Figure \ref{fig:metric-output-two} show additional experiment outputs used during the Phase 4 presentation. These figures are included to document the model evaluation artifacts generated by the implementation.
+Figure \ref{fig:recognition-output} shows a representative recognition output produced during the OCR evaluation workflow. Figure \ref{fig:metric-output-one} and Figure \ref{fig:metric-output-two} show additional experiment outputs used during earlier Phase 4 experimentation. The current quantitative values are reported in Table \ref{tab:ocr-results}; the figures are included only as implementation artifacts.
 
 \begin{figure}[h]
 \centering
@@ -339,35 +342,35 @@ Figure \ref{fig:recognition-output} shows a representative recognition output pr
 \begin{figure}[h]
 \centering
 \includegraphics[width=0.90\textwidth]{output1.png}
-\caption{Model evaluation output generated during TrOCR testing.}
+\caption{Earlier model evaluation output generated during TrOCR testing.}
 \label{fig:metric-output-one}
 \end{figure}
 
 \begin{figure}[h]
 \centering
 \includegraphics[width=0.90\textwidth]{output3.png}
-\caption{Additional model evaluation output generated during OCR experimentation.}
+\caption{Additional earlier model evaluation output generated during OCR experimentation.}
 \label{fig:metric-output-two}
 \end{figure}
 
 \section{Discussion}
 
-The experimental results show that medicine-name OCR is strong when the crop is correct. This is an important observation because it separates the OCR problem from the full-page segmentation problem. In the early implementation, inaccurate region crops reduced the usefulness of the final pipeline even though the OCR model itself performed well on clean word crops. This is why the final implementation includes both a word-level annotation workflow and a YOLO layout-training workflow.
+The experimental results show that medicine-name OCR improves substantially when trained on a broader combined dataset with train-time augmentation. The current validation result is lower than the earlier BD-only presentation result because the combined dataset is larger, more varied, and more difficult. This makes the current metric a more realistic estimate of generalization across different prescription-word sources. The result also confirms that crop quality remains critical: the OCR model operates on word crops, so full-page performance depends on reliable region detection, line segmentation, and word segmentation. This is why the final implementation includes both a word-level annotation workflow and a YOLO layout-training workflow.
 
 The full prescription pipeline currently demonstrates the integration of preprocessing, region detection, line segmentation, word segmentation, OCR inference, and validation. However, the page-level quantitative evaluation is not yet as mature as the word-level OCR evaluation because a sufficiently large reviewed full-page dataset must still be completed. The implemented annotation tools directly address this limitation by allowing raw prescriptions to be converted into reviewed word crops and corrected region boxes.
 
 \section{Limitations}
 
-The current system has three main limitations. First, the OCR model was trained on cropped medicine names, so it requires accurate word crops during final inference. Second, dosage and frequency extraction is rule-based and may miss uncommon clinical abbreviations. Third, the learned YOLO cropper depends on the number and quality of corrected handwritten-region boxes. These limitations do not invalidate the modular architecture, but they define the next stages required before deployment in a clinical workflow.
+The current system has three main limitations. First, the OCR model was trained on cropped medicine names, so it requires accurate word crops during final inference. Second, dosage and frequency extraction is rule-based and may miss uncommon clinical abbreviations. Third, the learned YOLO cropper depends on the number and quality of corrected handwritten-region boxes. The latest TrOCR run also reports validation metrics; the final test-set result should be generated from the saved best checkpoint before final submission. These limitations do not invalidate the modular architecture, but they define the next stages required before deployment in a clinical workflow.
 
 \chapter{Conclusion and Future Work}
 \label{chap:conclusion}
 
 This thesis presented a region-aware medical prescription recognition framework for efficient healthcare workflows. The system accepts full prescription images, preprocesses the page, detects handwritten regions, segments line and word crops, recognises medicine names using TrOCR, and validates OCR output using dosage-frequency rules and drug lexicon matching. The implemented annotation tools allow raw prescription images to be transformed into reviewed word-level OCR datasets, while the YOLO training workflow addresses the inaccurate crop problem observed in the heuristic cropper.
 
-The fine-tuned TrOCR model achieved 96.28\% exact-match accuracy, 2.87\% CER, and 3.92\% WER on the cropped-word testing split. These results confirm that transformer-based OCR is effective for medicine-name recognition when supplied with clean word crops. The final implementation extends the work beyond OCR by introducing the infrastructure needed for full-prescription processing and future page-level evaluation.
+The latest fine-tuned TrOCR model achieved 83.16\% strict exact-match accuracy, 89.06\% case-insensitive exact-match accuracy, 5.91\% CER, and 17.02\% WER on the combined cropped-word validation split after 2500 Kaggle T4x2 training steps. These results confirm that transformer-based OCR is effective for medicine-name recognition when supplied with clean word crops, while also showing that performance decreases on a broader and more realistic combined dataset compared with a single-source cropped-word dataset. The final implementation extends the work beyond OCR by introducing the infrastructure needed for full-prescription processing and future page-level evaluation.
 
-Future work should focus on completing a larger reviewed full-page prescription dataset, quantitatively evaluating the trained YOLO region detector, and training the OCR model on custom word crops extracted from local prescriptions. The validation layer can be improved by integrating a BioBERT-based NER model and a larger Indian drug-name lexicon. Additional privacy-preserving preprocessing should also be added so that patient identifiers are masked before annotation or training.
+Future work should focus on completing a larger reviewed full-page prescription dataset, quantitatively evaluating the trained YOLO region detector, completing the final test-set evaluation of the best TrOCR checkpoint, and continuing TrOCR fine-tuning from saved checkpoints when GPU time is available. The validation layer can be improved by integrating a BioBERT-based NER model and a larger Indian drug-name lexicon. Additional privacy-preserving preprocessing should also be added so that patient identifiers are masked before annotation or training.
 
 \bibliographystyle{IEEEtran}
 \bibliography{references}
