@@ -8,7 +8,9 @@
 \usepackage{cite}
 \usepackage{xcolor}
 \usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, shapes.geometric}
 \usepackage{booktabs}
+\usepackage{tabularx}
 \usepackage{listings}
 \usepackage{hyperref}
 \usepackage{comment}
@@ -109,6 +111,29 @@ Our system employs a five-stage modular pipeline as illustrated in Figure \ref{f
 \label{fig:architecture}
 \end{figure}
 
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}[
+  node distance=7mm and 8mm,
+  block/.style={draw, rounded corners, align=center, minimum height=9mm, text width=0.18\textwidth, font=\small},
+  arrow/.style={-{Latex[length=2mm]}, thick}
+]
+\node[block] (raw) {Raw prescription\\photograph};
+\node[block, right=of raw] (pre) {Preprocessing\\illumination and\\contrast normalization};
+\node[block, right=of pre] (region) {YOLO\\handwritten-region\\detector};
+\node[block, right=of region] (seg) {Line and word\\segmentation};
+\node[block, right=of seg] (ocr) {Fine-tuned\\TrOCR word\\recognition};
+\node[block, below=of ocr] (valid) {Dosage-frequency\\rules and drug\\lexicon matching};
+\draw[arrow] (raw) -- (pre);
+\draw[arrow] (pre) -- (region);
+\draw[arrow] (region) -- (seg);
+\draw[arrow] (seg) -- (ocr);
+\draw[arrow] (ocr) -- (valid);
+\end{tikzpicture}
+\caption{Implemented full-prescription inference flow from a raw prescription image to validated medicine-name predictions.}
+\label{fig:implemented-flow}
+\end{figure*}
+
 Unlike traditional OCR systems, our approach treats each prescription zone independently. This modularity allows each component to be optimized for its sub-task (e.g., handwritten medicine vs. printed header).
 \subsection{Data Acquisition and Preparation}
 
@@ -143,6 +168,28 @@ Handwritten zones are further segmented into line and word crops using OpenCV-ba
 \subsection{Handwriting Recognition}
 We employ \textbf{TrOCR}, a transformer-based OCR model, fine-tuned on the combined cropped medicine-word dataset. The model is trained for the \texttt{MEDICINE\_NAME} target using train-only augmentation, including small rotation, translation, scaling, contrast variation, blur, and noise. The current notebook trains the full encoder-decoder model, uses beam search during evaluation, and selects the best checkpoint using exact-match accuracy.
 
+\subsection{Transformer Adaptation}
+The contribution is not a new transformer architecture; it is the prescription-domain adaptation workflow built around pretrained TrOCR. The pretrained model is adapted through the combined medicine-word dataset, train-only handwriting augmentation, full encoder-decoder fine-tuning, explicit decoder-input preparation for stable training in the current Transformers environment, beam-search decoding, checkpoint selection by exact-match accuracy, and post-OCR lexicon/rule validation.
+
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}[
+  node distance=6mm,
+  block/.style={draw, rounded corners, align=center, minimum height=8mm, text width=0.74\textwidth, font=\small},
+  arrow/.style={-{Latex[length=2mm]}, thick}
+]
+\node[block] (base) {Pretrained \texttt{microsoft/trocr-base-handwritten}: vision encoder + autoregressive text decoder};
+\node[block, below=of base] (data) {Prescription-domain data: combined medicine-word dataset + train-time handwriting augmentation};
+\node[block, below=of data] (train) {Fine-tuning changes: full encoder-decoder training, explicit decoder inputs, best checkpoint by exact match};
+\node[block, below=of train] (decode) {Inference and validation: beam search, text normalization, dosage-frequency rules, drug lexicon matching};
+\draw[arrow] (base) -- (data);
+\draw[arrow] (data) -- (train);
+\draw[arrow] (train) -- (decode);
+\end{tikzpicture}
+\caption{Adaptation applied around the pretrained TrOCR transformer for medicine-name recognition.}
+\label{fig:trocr-adaptation}
+\end{figure*}
+
 \subsection{NLP Validation}
 The current validation layer uses regular expressions to extract dosage and frequency expressions and fuzzy matching to compare OCR outputs against a medicine lexicon. BioBERT is kept as a future extension for biomedical named-entity recognition; it is not required for the current implemented OCR results.
 
@@ -154,7 +201,8 @@ In this phase, we implemented the end-to-end region-aware pipeline components an
 \caption{Current Phase 4 TrOCR Validation Results}
 \label{tab:phase4_ocr_results}
 \renewcommand{\arraystretch}{1.2}
-\begin{tabular}{lc}
+\small
+\begin{tabularx}{\columnwidth}{Xr}
 \toprule
 \textbf{Metric} & \textbf{Value} \\
 \midrule
@@ -166,7 +214,7 @@ Validation Loss & 0.2076 \\
 Training Steps & 2500 \\
 Validation Samples & 1033 \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 The validation metrics improved consistently during training. Strict exact-match accuracy increased from 73.18\% at step 500 to 83.16\% at step 2500, while CER decreased from 9.39\% to 5.91\%. The case-insensitive score is higher because many errors are capitalization differences that can be normalized safely before lexicon validation. The result is lower than the earlier single-dataset presentation result because the current combined dataset is larger, more varied, and more realistic.
