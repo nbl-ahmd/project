@@ -30,7 +30,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.append(str(SCRIPT_DIR))
 
 from preprocess_pages import preprocess_page  # noqa: E402
-from segment_lines import detect_line_boxes  # noqa: E402
+from segment_lines import detect_line_boxes, enhance_for_ocr  # noqa: E402
 from segment_words import detect_word_boxes  # noqa: E402
 
 
@@ -333,7 +333,7 @@ def create_line_crops(
             continue
         line_id = f"{region.region_id}_l{idx:02d}"
         line_path = lines_dir / f"{line_id}.png"
-        cv2.imwrite(str(line_path), region_bgr[y1p:y2p, x1p:x2p])
+        cv2.imwrite(str(line_path), enhance_for_ocr(region_bgr[y1p:y2p, x1p:x2p]))
         cv2.rectangle(context, (x1p, y1p), (x2p, y2p), (0, 220, 0), 2)
         crops.append(
             LineCrop(
@@ -390,7 +390,7 @@ def create_word_crops(
         word_id = f"{line.line_id}_w{idx:02d}"
         word_path = words_dir / f"{word_id}.png"
         context_path = context_dir / f"{line.line_id}_word_context.png"
-        cv2.imwrite(str(word_path), line_bgr[y1p:y2p, x1p:x2p])
+        cv2.imwrite(str(word_path), enhance_for_ocr(line_bgr[y1p:y2p, x1p:x2p]))
         cv2.rectangle(context, (x1p, y1p), (x2p, y2p), (0, 120, 255), 2)
         rows.append(
             {

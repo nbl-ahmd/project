@@ -21,6 +21,11 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+try:
+    from segment_lines import binarize_handwriting, enhance_for_ocr
+except ImportError:  # pragma: no cover
+    from .segment_lines import binarize_handwriting, enhance_for_ocr
+
 
 def detect_word_boxes(
     line_bgr: np.ndarray,
@@ -28,10 +33,7 @@ def detect_word_boxes(
     min_word_height: int,
     merge_gap: int,
 ) -> list[tuple[int, int, int, int]]:
-    gray = cv2.cvtColor(line_bgr, cv2.COLOR_BGR2GRAY)
-    bw = cv2.adaptiveThreshold(
-        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 35, 15
-    )
+    bw = binarize_handwriting(line_bgr)
 
     # Light horizontal dilation joins letters inside a word while preserving gaps.
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 2))
@@ -129,7 +131,7 @@ def main() -> None:
 
             word_id = f"{row['line_id']}_w{word_idx:02d}"
             word_path = words_dir / f"{word_id}.png"
-            cv2.imwrite(str(word_path), line_bgr[y1p:y2p, x1p:x2p])
+            cv2.imwrite(str(word_path), enhance_for_ocr(line_bgr[y1p:y2p, x1p:x2p]))
             cv2.rectangle(context, (x1p, y1p), (x2p, y2p), (0, 120, 255), 2)
 
             rows.append(
@@ -162,4 +164,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

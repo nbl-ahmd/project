@@ -33,16 +33,34 @@ def remove_form_rulings(binary: np.ndarray) -> np.ndarray:
     return cv2.bitwise_and(binary, cv2.bitwise_not(rulings))
 
 
+def illumination_compensated_gray(image_bgr: np.ndarray) -> np.ndarray:
+    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    bg_kernel = max(31, (min(gray.shape[:2]) // 8) * 2 + 1)
+    background = cv2.GaussianBlur(gray, (bg_kernel, bg_kernel), 0)
+    normalized = cv2.divide(gray, background, scale=255)
+    return cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(normalized)
+
+
+def enhance_for_ocr(image_bgr: np.ndarray) -> np.ndarray:
+    """Return an illumination-normalized RGB crop for OCR/model input."""
+    enhanced = illumination_compensated_gray(image_bgr)
+    enhanced = cv2.fastNlMeansDenoising(enhanced, None, h=8, templateWindowSize=7, searchWindowSize=21)
+    return cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
+
+
 def binarize_handwriting(region_bgr: np.ndarray) -> np.ndarray:
     gray = cv2.cvtColor(region_bgr, cv2.COLOR_BGR2GRAY)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
-    blur = cv2.GaussianBlur(clahe, (3, 3), 0)
+    compensated = illumination_compensated_gray(region_bgr)
+    blur = cv2.GaussianBlur(compensated, (3, 3), 0)
     adaptive = cv2.adaptiveThreshold(
-        blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 35, 15
+        blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 31, 12
     )
     _, otsu = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
     binary = cv2.bitwise_or(adaptive, otsu)
     binary = remove_form_rulings(binary)
+    # Remove very dark page borders/shadows that can dominate row projection.
+    border = cv2.inRange(gray, 0, 25)
+    binary = cv2.bitwise_and(binary, cv2.bitwise_not(border))
     noise_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
     return cv2.morphologyEx(binary, cv2.MORPH_OPEN, noise_kernel, iterations=1)
 
@@ -107,7 +125,10 @@ def detect_line_boxes_projection(region_bgr: np.ndarray, min_line_h: int, merge_
     merged = cv2.dilate(bw, k, iterations=1)
 
     row_sum = (merged > 0).sum(axis=1)
-    threshold = max(8, int(0.08 * merged.shape[1]))
+    nonzero_rows = row_sum[row_sum > 0]
+    if nonzero_rows.size == 0:
+        return []
+    threshold = max(3, int(np.percentile(nonzero_rows, 35)))
 
     spans = []
     in_span = False
@@ -154,13 +175,62 @@ def detect_line_boxes_projection(region_bgr: np.ndarray, min_line_h: int, merge_
     return line_boxes
 
 
+def detect_line_boxes_components(region_bgr: np.ndarray, min_line_h: int, merge_gap: int) -> list[tuple[int, int, int, int]]:
+    binary = binarize_handwriting(region_bgr)
+    h, w = binary.shape[:2]
+
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
+    components = []
+    for label in range(1, num_labels):
+        x, y, bw, bh, area = stats[label]
+        if area < 8 or bh < 3 or bw < 2:
+            continue
+        if bh > h * 0.25 or bw > w * 0.9:
+            continue
+        components.append((x, y, x + bw, y + bh))
+
+    if not components:
+        return []
+
+    components = sorted(components, key=lambda b: ((b[1] + b[3]) / 2, b[0]))
+    bands: list[list[int]] = []
+    for x1, y1, x2, y2 in components:
+        mid = (y1 + y2) / 2
+        placed = False
+        for band in bands:
+            band_mid = (band[1] + band[3]) / 2
+            band_h = max(1, band[3] - band[1])
+            if abs(mid - band_mid) <= max(merge_gap + 4, band_h * 0.7):
+                band[0] = min(band[0], x1)
+                band[1] = min(band[1], y1)
+                band[2] = max(band[2], x2)
+                band[3] = max(band[3], y2)
+                placed = True
+                break
+        if not placed:
+            bands.append([x1, y1, x2, y2])
+
+    boxes = []
+    for x1, y1, x2, y2 in bands:
+        if y2 - y1 < min_line_h or x2 - x1 < 40:
+            continue
+        boxes.append((max(0, x1 - 8), max(0, y1 - 2), min(w - 1, x2 + 8), min(h - 1, y2 + 2)))
+    return sorted(merge_overlapping_boxes(boxes, merge_gap=merge_gap), key=lambda b: (b[1], b[0]))
+
+
 def detect_line_boxes(region_bgr: np.ndarray, min_line_h: int, merge_gap: int) -> list[tuple[int, int, int, int]]:
     connected = detect_line_boxes_connected(region_bgr, min_line_h=min_line_h, merge_gap=merge_gap)
     projection = detect_line_boxes_projection(region_bgr, min_line_h=min_line_h, merge_gap=merge_gap)
-    if not connected:
-        return projection
-    if not projection:
-        return connected
+    components = detect_line_boxes_components(region_bgr, min_line_h=min_line_h, merge_gap=merge_gap)
+    candidates = [boxes for boxes in [projection, components, connected] if boxes]
+    if not candidates:
+        return []
+    if len(candidates) == 1:
+        return candidates[0]
+    # Prefer the split with more plausible text rows, avoiding one giant region crop.
+    best = max(candidates, key=lambda boxes: (len(boxes), -np.median([b[3] - b[1] for b in boxes])))
+    if len(best) > 1:
+        return best
     # Prefer connected-component boxes when counts are similar because they are tighter for OCR.
     if abs(len(connected) - len(projection)) <= 1:
         return connected
