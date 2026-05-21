@@ -1,76 +1,75 @@
-# Custom Dataset Annotation Pipeline (Phase 4+)
+# Phase 4 Prescription Recognition Pipeline
 
-This toolkit lets you go from `data/raw` prescription photos to an annotation-ready dataset for doctors, and then build an OCR training dataset.
+This toolkit goes from raw prescription photos in `data/raw` to OCR-ready word crops, word-level TrOCR predictions, and structured medicine output.
 
-## Notebook Workflows
+## Final Decision
 
-If you want to run the cropper and annotator tools inside Colab/Jupyter, use:
+Use this as the thesis-ready pipeline:
 
-In Colab, run the first setup cell before any install or pipeline cell. The notebooks now mount Google Drive, clone/pull this repository into:
+1. Preprocess full prescription pages.
+2. Detect handwritten prescription regions with the trained YOLO region model.
+3. Segment lines inside each region with the hybrid OpenCV line segmenter.
+4. Segment words from each line crop with connected-component word segmentation.
+5. Run word-level TrOCR on the word crops.
+6. Apply lexicon/fuzzy matching, dosage/frequency extraction, and drug database validation.
 
-`/content/drive/MyDrive/phase4_project/repo`
+Do not use the YOLO line detector as the final method right now. Your region YOLO is strong, but the line YOLO result is weak on the current small line dataset. Keep line YOLO only as an optional ablation/comparison experiment.
 
-Keep raw prescription images in:
+## Augmentation Policy
 
-`/content/drive/MyDrive/phase4_project/repo/data/raw`
+Raw/full-page augmentation for handwritten-region YOLO is optional and can be skipped for now. Your current region detector already has excellent validation results:
 
-All generated crops, manifests, models, and processed files will also stay under Google Drive, so they persist after the Colab runtime disconnects.
+- precision: `0.994`
+- recall: `1.000`
+- mAP50: `0.995`
+- mAP50-95: `0.929`
 
-For 53 full prescription images, use corrected annotations rather than only heuristic crops. The region and line YOLO notebooks use an approximate 70/15/15 train, validation, and test split. Do not inflate the test set with augmented duplicates. Training-time augmentation is enabled in YOLO for rotation, shear, perspective, and scale changes.
+Only retrain the region model with more raw-page augmentation if it fails on new camera angles, new forms, or different lighting.
 
-Trained model weights are copied to stable Drive-backed paths:
+Use augmentation where it helps most: word-level OCR training. The script `pipeline/scripts/augment_ocr_dataset.py` creates a train-only augmented OCR dataset using mild rotate/shift/scale/brightness/noise changes. Validation and testing stay unchanged.
 
-`models/region_yolo_best.pt`
+## Notebook Order
 
-`models/line_yolo_best.pt`
+Run notebooks in this order:
 
-Use these paths in later notebooks instead of rerunning YOLO training.
+1. `phase4_region_line_segmentation_colab.ipynb`
+   - preprocesses `data/raw`
+   - trains or reuses `models/region_yolo_best.pt`
+   - runs final segmentation into regions, lines, and words
+   - output: `data/final_region_hybrid_line_word/word_manifest.csv`
 
-- `phase4_region_line_segmentation_colab.ipynb`
-  - follows the thesis order for the first two stages
-  - preprocesses raw full prescription pages
-  - manually annotates handwritten-region boxes, then trains a YOLO region detector
-  - manually annotates/corrects line boxes, then trains a YOLO line detector
-  - runs region segmentation followed by line segmentation with trained models
-  - keeps OpenCV line segmentation as a bootstrap tool, while the final line detector is YOLO trained on corrected line boxes
+2. `phase4_full_prescription_annotation_tools.ipynb`
+   - optional review/annotation notebook for word crops
+   - exports `data/custom_word_ocr_dataset`
+   - creates `data/custom_word_ocr_dataset_augmented`
 
-- `phase4_full_prescription_annotation_tools.ipynb`
-  - preprocesses full prescription images
-  - prepares CVAT/Label Studio layout annotation files
-  - includes an in-notebook manual handwritten-region cropper if CVAT is not used
-  - crops handwritten regions
-  - segments lines and words
-  - provides an in-notebook word annotation UI
-  - exports a BD-style custom word OCR dataset
+3. `phase4_trocr_word_level.ipynb`
+   - trains/evaluates word-level TrOCR
+   - auto-prefers `data/custom_word_ocr_dataset_augmented`
+   - runs final full-prescription inference with region YOLO + hybrid line/word segmentation
 
-- `phase4_trocr_word_level.ipynb`
-  - trains/evaluates TrOCR on cropped word images
-  - can be pointed to `data/custom_word_ocr_dataset`
-  - includes the final full-prescription inference section
+Stable model paths:
 
-- `phase4_layout_yolo_training.ipynb`
-  - converts corrected handwritten-region boxes to YOLO format
-  - trains a YOLO handwritten-region detector
-  - lets the final pipeline crop with a trained model instead of heuristic cropping
+```text
+models/region_yolo_best.pt
+models/line_yolo_best.pt   # optional experiment only
+```
 
-## Key Decision (Your Question)
+## Colab Paths
 
-`header/footer/handwriting` segmentation should be done **before** doctor annotation.
+In Colab, keep the repo under:
 
-- Do layout segmentation annotation first (by technical annotators, not doctors).
-- Then crop handwritten regions and line images.
-- Send **line crops + page context** to doctors for text annotation.
-- Create single-medicine crops only after verified annotations if still needed.
+```text
+/content/drive/MyDrive/phase4_project/repo
+```
 
-Do **not** start by sending isolated word crops to doctors. You lose context and introduce wrong auto-crops.
+Put raw prescription images in:
 
-## Folder Structure Used
+```text
+/content/drive/MyDrive/phase4_project/repo/data/raw
+```
 
-- Raw input: `data/raw`
-- Processed outputs: `data/processed/...`
-- Pipeline scripts: `pipeline/scripts`
-- Doctor app: `pipeline/app/annotator_app.py`
-- Final built OCR dataset: `data/custom_ocr_dataset`
+Generated crops, manifests, datasets, and models will remain on Drive.
 
 ## Install
 
@@ -78,13 +77,21 @@ Do **not** start by sending isolated word crops to doctors. You lose context and
 python3 -m pip install -r pipeline/requirements.txt
 ```
 
-For local TrOCR inference, install the optional OCR stack:
+For YOLO training:
+
+```bash
+python3 -m pip install -r pipeline/requirements-layout.txt
+```
+
+For TrOCR:
 
 ```bash
 python3 -m pip install -r pipeline/requirements-ocr.txt
 ```
 
-## Stage 1: Preprocess Raw Prescription Pages
+## Core CLI Flow
+
+### 1. Preprocess Pages
 
 ```bash
 python3 pipeline/scripts/preprocess_pages.py \
@@ -93,11 +100,7 @@ python3 pipeline/scripts/preprocess_pages.py \
   --manifest-out data/processed/page_manifest.csv
 ```
 
-What it does:
-- resize (optional), deskew, denoise, contrast enhancement
-- saves clean page images and a page manifest
-
-## Stage 2: Prepare for Layout Annotation (CVAT/Label Studio)
+### 2. Prepare Region Annotation Package
 
 ```bash
 python3 pipeline/scripts/prepare_layout_annotation.py \
@@ -106,135 +109,54 @@ python3 pipeline/scripts/prepare_layout_annotation.py \
   --copy-images
 ```
 
-Then annotate in CVAT/Label Studio using classes:
-- `header`
-- `handwritten_region`
-- `footer`
+Annotate `handwritten_region` boxes, then export YOLO labels if needed.
 
-Export labels in YOLO format (`.txt` per image) and keep them in:
-- `data/processed/layout_yolo_labels`
+### 3. Train Region YOLO
 
-## Stage 3: Crop Handwritten Regions from YOLO Labels
+If `models/region_yolo_best.pt` already exists and works well, skip retraining.
 
 ```bash
-python3 pipeline/scripts/crop_regions_from_yolo.py \
-  --pages-dir data/processed/pages \
-  --labels-dir data/processed/layout_yolo_labels \
-  --class-map pipeline/config/layout_classes.txt \
-  --target-label handwritten_region \
-  --output-dir data/processed/regions \
-  --manifest-out data/processed/region_manifest.csv
+python3 pipeline/scripts/prepare_yolo_layout_dataset.py \
+  --page-manifest data/processed/page_manifest.csv \
+  --region-manifest data/processed/region_manifest.csv \
+  --output-dir data/layout_yolo_dataset
+
+python3 pipeline/scripts/train_yolo_layout.py \
+  --data-yaml data/layout_yolo_dataset/data.yaml \
+  --model yolov8n.pt \
+  --epochs 80 \
+  --imgsz 960 \
+  --batch 8 \
+  --weights-out models/region_yolo_best.pt
 ```
 
-## Stage 4: Segment Line Crops from Handwritten Regions
+### 4. Final Segmentation: Region YOLO + Hybrid Lines + Words
 
 ```bash
-python3 pipeline/scripts/segment_lines.py \
-  --region-manifest data/processed/region_manifest.csv \
-  --output-dir data/processed/line_crops \
-  --manifest-out data/processed/line_manifest.csv
+python3 pipeline/scripts/run_end_to_end.py \
+  --input data/raw \
+  --output-dir data/final_region_hybrid_line_word \
+  --yolo-model models/region_yolo_best.pt \
+  --target-class 0 \
+  --ocr-backend none \
+  --ocr-unit word \
+  --line-padding 6
 ```
 
 Outputs:
-- line crop images
-- context preview images (line highlighted in region)
-- line manifest CSV
 
-## Stage 5: Build Doctor Annotation Sheet
+- `page_manifest.csv`
+- `region_manifest.csv`
+- `line_manifest.csv`
+- `word_manifest.csv`
+- region crops
+- line crops
+- word crops
+- context preview images
 
-```bash
-python3 pipeline/scripts/create_annotation_manifest.py \
-  --line-manifest data/processed/line_manifest.csv \
-  --output-csv data/processed/doctor_annotations.csv \
-  --split-into-doctors 3 \
-  --doctor-prefix doctor
-```
+### 5. Build Word OCR Dataset
 
-This creates:
-- `doctor_annotations.csv` (master sheet)
-- `doctor_1_annotations.csv`, `doctor_2_annotations.csv`, ...
-
-## Stage 6A: Doctor Line Annotation Tool (Streamlit)
-
-```bash
-streamlit run pipeline/app/annotator_app.py -- \
-  --manifest data/processed/line_manifest.csv \
-  --annotations data/processed/doctor_annotations.csv \
-  --annotator-id doctor_1
-```
-
-Doctors will fill:
-- `transcription`
-- `medicine_name`
-- `dosage`
-- `frequency`
-- `confidence`
-- `review_status`
-- `notes`
-
-## Stage 6B: Segment and Annotate Word Crops
-
-Use this when you want a word-level dataset similar to:
-
-`data/doctors-handwritten-prescription-bd-dataset/Doctor’s Handwritten Prescription BD dataset`
-
-First segment words from line crops:
-
-```bash
-python3 pipeline/scripts/segment_words.py \
-  --line-manifest data/processed/line_manifest.csv \
-  --output-dir data/processed/word_crops \
-  --manifest-out data/processed/word_manifest.csv
-```
-
-Create the word annotation CSV:
-
-```bash
-python3 pipeline/scripts/create_word_annotation_manifest.py \
-  --word-manifest data/processed/word_manifest.csv \
-  --output-csv data/processed/word_annotations.csv
-```
-
-Run the word annotation app:
-
-```bash
-streamlit run pipeline/app/word_annotator_app.py -- \
-  --manifest data/processed/word_manifest.csv \
-  --annotations data/processed/word_annotations.csv \
-  --annotator-id annotator_1
-```
-
-Annotators fill:
-- `word_text`
-- `medicine_name`
-- `is_medicine`
-- `confidence`
-- `review_status`
-- `notes`
-
-For medicine-name OCR training, mark only correct medicine word crops as `review_status=reviewed` and fill `medicine_name`.
-
-### Optional: Create a Shareable Package for a Specific Doctor
-
-```bash
-python3 pipeline/scripts/package_for_doctors.py \
-  --annotations-csv data/processed/doctor_1_annotations.csv \
-  --annotator-id doctor_1 \
-  --output-dir data/processed/packages/doctor_1
-```
-
-## Stage 7: Build Final OCR Dataset from Approved Rows
-
-```bash
-python3 pipeline/scripts/build_ocr_dataset.py \
-  --annotations-csv data/processed/doctor_annotations.csv \
-  --output-root data/custom_ocr_dataset \
-  --label-column medicine_name \
-  --approved-status reviewed \
-  --seed 42
-```
-
-For word-level medicine-name OCR, use:
+After reviewing word annotations:
 
 ```bash
 python3 pipeline/scripts/build_ocr_dataset.py \
@@ -246,99 +168,71 @@ python3 pipeline/scripts/build_ocr_dataset.py \
   --seed 42
 ```
 
-Generated structure:
-- `data/custom_ocr_dataset/Training/training_words/*.png`
-- `data/custom_ocr_dataset/Validation/validation_words/*.png`
-- `data/custom_ocr_dataset/Testing/testing_words/*.png`
-- split CSV labels
+### 6. Augment OCR Training Split
 
-## Suggested Annotation Policy
+```bash
+python3 pipeline/scripts/augment_ocr_dataset.py \
+  --input-root data/custom_word_ocr_dataset \
+  --output-root data/custom_word_ocr_dataset_augmented \
+  --augmentations-per-image 3 \
+  --seed 42
+```
 
-- 10–15% samples double-annotated by 2 doctors.
-- Resolve conflicts before marking `review_status=reviewed`.
-- Keep one master CSV in Drive with versioned backups.
+This augments only `Training/training_words`. It copies validation and testing unchanged.
 
-## What to Send Doctors
+### 7. Final OCR Inference
 
-Send:
-- line crops
-- context previews
-- Streamlit access (or per-doctor CSV package)
-
-Do not send:
-- full raw pages for routine transcription
-- isolated auto-word crops as primary annotation unit
-
-## Final End-to-End Demo Runner
-
-For the final presentation, use the single-command runner after installing dependencies:
+After TrOCR training, run:
 
 ```bash
 python3 pipeline/scripts/run_end_to_end.py \
-  --input data/raw/1.jpg \
-  --output-dir data/final_demo \
-  --ocr-backend trocr \
-  --ocr-unit word \
-  --trocr-model /path/to/fine_tuned/best_model
-```
-
-If the fine-tuned TrOCR checkpoint is not available on the current machine, smoke-test the full non-OCR pipeline:
-
-```bash
-python3 pipeline/scripts/run_end_to_end.py \
-  --input data/raw/1.jpg \
-  --output-dir data/final_demo \
-  --ocr-unit word \
-  --ocr-backend none
-```
-
-The runner outputs:
-- `page_manifest.csv`
-- `region_manifest.csv`
-- `line_manifest.csv`
-- `word_manifest.csv`
-- `predictions.csv`
-- `predictions.json`
-- cropped region and line images for presentation screenshots
-
-It uses YOLO labels if `--labels-dir data/processed/layout_yolo_labels` is provided. Without labels, it uses a heuristic handwritten-region proposal so the rest of the pipeline can still be demonstrated.
-
-For more accurate cropping, train a YOLO layout detector from corrected boxes:
-
-```bash
-python3 pipeline/scripts/prepare_yolo_layout_dataset.py \
-  --page-manifest data/processed/page_manifest.csv \
-  --region-manifest data/processed/region_manifest.csv \
-  --output-dir data/layout_yolo_dataset
-
-python3 -m pip install -r pipeline/requirements-layout.txt
-
-python3 pipeline/scripts/train_yolo_layout.py \
-  --data-yaml data/layout_yolo_dataset/data.yaml \
-  --model yolov8n.pt \
-  --epochs 50 \
-  --imgsz 960 \
-  --batch 8
-```
-
-Then run the final pipeline with the trained model:
-
-```bash
-python3 pipeline/scripts/run_end_to_end.py \
-  --input data/raw/1.jpg \
-  --output-dir data/final_demo_yolo \
-  --yolo-model runs/layout/handwritten_region_yolo/weights/best.pt \
+  --input data/raw \
+  --output-dir data/final_demo_trocr \
+  --yolo-model models/region_yolo_best.pt \
   --target-class 0 \
   --ocr-backend trocr \
   --ocr-unit word \
-  --trocr-model /path/to/fine_tuned/best_model
+  --trocr-model /path/to/fine_tuned/best_model \
+  --line-padding 6 \
+  --lexicon pipeline/config/drug_lexicon.txt
 ```
 
-Use `--target-class 0` for a one-class model trained with `prepare_yolo_layout_dataset.py`. Use `--target-class 1` only for CVAT labels whose class order is `header, handwritten_region, footer`.
+The final output files are:
 
-To test only the post-OCR validation stage:
+- `predictions.csv`
+- `predictions.json`
+- `word_manifest.csv`
+- `line_manifest.csv`
+- crop folders for thesis screenshots
 
-```bash
-python3 pipeline/scripts/validate_prescription_text.py \
-  --text "Napa 500 mg 1-0-1"
-```
+## Optional Experiments
+
+### YOLO Line Detector
+
+Keep this as an ablation only. Current line YOLO performance was low:
+
+- validation mAP50-95 around `0.090`
+- test mAP50-95 around `0.069`
+
+The notebook still contains an optional line YOLO training cell, but do not pass `--line-yolo-model` in the final run unless you are reporting the comparison.
+
+### Raw Augmentation for Region YOLO
+
+Skip it for the current submission unless visual inspection shows failures. The existing region model is already good enough for the next stages.
+
+## Annotation Policy
+
+- Keep the test split clean and unaugmented.
+- Double-annotate 10-15 percent of samples if possible.
+- Mark rows as `reviewed` only after label and crop quality are acceptable.
+- For OCR training, use medicine word crops with filled `medicine_name`.
+
+## What to Send for Review
+
+Send:
+
+- line crops with context previews
+- word crops for medicine-name labeling
+- annotation CSV or notebook UI
+
+Avoid using isolated auto-word crops as the only source of truth without context. The prescription line context is important for resolving ambiguous handwriting.

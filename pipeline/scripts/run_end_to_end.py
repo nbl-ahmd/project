@@ -299,6 +299,7 @@ def create_line_crops(
     output_dir: Path,
     min_line_height: int,
     merge_gap: int,
+    line_padding: int,
     line_yolo_model=None,
     line_target_class: int = 0,
     line_yolo_conf: float = 0.25,
@@ -325,7 +326,7 @@ def create_line_crops(
     crops: list[LineCrop] = []
     h, w = region_bgr.shape[:2]
     for idx, (x1, y1, x2, y2) in enumerate(boxes):
-        pad = 4
+        pad = max(0, line_padding)
         x1p, y1p = max(0, x1 - pad), max(0, y1 - pad)
         x2p, y2p = min(w - 1, x2 + pad), min(h - 1, y2 + pad)
         if x2p - x1p < 30 or y2p - y1p < 8:
@@ -434,6 +435,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-side", type=int, default=2200, help="Max page dimension after preprocessing.")
     parser.add_argument("--min-line-height", type=int, default=14)
     parser.add_argument("--merge-gap", type=int, default=8)
+    parser.add_argument("--line-padding", type=int, default=6, help="Padding around line crops in pixels.")
     parser.add_argument("--ocr-backend", choices=["trocr", "none"], default="trocr")
     parser.add_argument("--ocr-unit", choices=["line", "word"], default="word", help="Run OCR on line crops or word crops.")
     parser.add_argument("--trocr-model", default="microsoft/trocr-base-handwritten")
@@ -522,6 +524,7 @@ def main() -> None:
                 lines_root,
                 args.min_line_height,
                 args.merge_gap,
+                args.line_padding,
                 line_yolo_model=line_yolo_model,
                 line_target_class=args.line_target_class,
                 line_yolo_conf=args.line_yolo_conf,
