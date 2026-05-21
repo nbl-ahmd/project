@@ -22,11 +22,85 @@ import pandas as pd
 from tqdm import tqdm
 
 
-def detect_line_boxes(region_bgr: np.ndarray, min_line_h: int, merge_gap: int) -> list[tuple[int, int, int, int]]:
+def remove_form_rulings(binary: np.ndarray) -> np.ndarray:
+    """Remove long prescription-form lines while keeping handwriting strokes."""
+    h, w = binary.shape[:2]
+    vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(25, h // 3)))
+    horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (max(80, w // 3), 1))
+    vertical = cv2.morphologyEx(binary, cv2.MORPH_OPEN, vertical_kernel, iterations=1)
+    horizontal = cv2.morphologyEx(binary, cv2.MORPH_OPEN, horizontal_kernel, iterations=1)
+    rulings = cv2.bitwise_or(vertical, horizontal)
+    return cv2.bitwise_and(binary, cv2.bitwise_not(rulings))
+
+
+def binarize_handwriting(region_bgr: np.ndarray) -> np.ndarray:
     gray = cv2.cvtColor(region_bgr, cv2.COLOR_BGR2GRAY)
-    bw = cv2.adaptiveThreshold(
-        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 35, 15
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
+    blur = cv2.GaussianBlur(clahe, (3, 3), 0)
+    adaptive = cv2.adaptiveThreshold(
+        blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 35, 15
     )
+    _, otsu = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    binary = cv2.bitwise_or(adaptive, otsu)
+    binary = remove_form_rulings(binary)
+    noise_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+    return cv2.morphologyEx(binary, cv2.MORPH_OPEN, noise_kernel, iterations=1)
+
+
+def merge_overlapping_boxes(
+    boxes: list[tuple[int, int, int, int]], merge_gap: int
+) -> list[tuple[int, int, int, int]]:
+    if not boxes:
+        return []
+    boxes = sorted(boxes, key=lambda b: (b[1], b[0]))
+    merged: list[list[int]] = [list(boxes[0])]
+    for x1, y1, x2, y2 in boxes[1:]:
+        prev = merged[-1]
+        prev_mid = (prev[1] + prev[3]) / 2
+        mid = (y1 + y2) / 2
+        overlap = min(prev[3], y2) - max(prev[1], y1)
+        same_band = overlap > 0 or abs(mid - prev_mid) <= max(merge_gap, (prev[3] - prev[1]) * 0.75)
+        if same_band:
+            prev[0] = min(prev[0], x1)
+            prev[1] = min(prev[1], y1)
+            prev[2] = max(prev[2], x2)
+            prev[3] = max(prev[3], y2)
+        else:
+            merged.append([x1, y1, x2, y2])
+    return [tuple(b) for b in merged]
+
+
+def detect_line_boxes_connected(
+    region_bgr: np.ndarray, min_line_h: int, merge_gap: int
+) -> list[tuple[int, int, int, int]]:
+    binary = binarize_handwriting(region_bgr)
+    h, w = binary.shape[:2]
+
+    # Join letters and words along a prescription line, but avoid merging adjacent lines.
+    kernel_w = max(25, min(95, w // 12))
+    kernel_h = max(3, min(9, h // 80))
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_w, kernel_h))
+    merged = cv2.dilate(binary, kernel, iterations=1)
+
+    contours, _ = cv2.findContours(merged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    boxes: list[tuple[int, int, int, int]] = []
+    for contour in contours:
+        x, y, bw, bh = cv2.boundingRect(contour)
+        if bh < min_line_h or bw < 45:
+            continue
+        if bh > h * 0.35 or bw > w * 0.98:
+            continue
+        ink = binary[y : y + bh, x : x + bw]
+        if cv2.countNonZero(ink) < max(20, 0.002 * bw * bh):
+            continue
+        boxes.append((x, y, x + bw, y + bh))
+
+    boxes = merge_overlapping_boxes(boxes, merge_gap=merge_gap)
+    return sorted(boxes, key=lambda b: (b[1], b[0]))
+
+
+def detect_line_boxes_projection(region_bgr: np.ndarray, min_line_h: int, merge_gap: int) -> list[tuple[int, int, int, int]]:
+    bw = binarize_handwriting(region_bgr)
 
     # Connect text components in each line.
     k = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 3))
@@ -78,6 +152,20 @@ def detect_line_boxes(region_bgr: np.ndarray, min_line_h: int, merge_gap: int) -
         line_boxes.append((x1, y1, x2, y2))
 
     return line_boxes
+
+
+def detect_line_boxes(region_bgr: np.ndarray, min_line_h: int, merge_gap: int) -> list[tuple[int, int, int, int]]:
+    connected = detect_line_boxes_connected(region_bgr, min_line_h=min_line_h, merge_gap=merge_gap)
+    projection = detect_line_boxes_projection(region_bgr, min_line_h=min_line_h, merge_gap=merge_gap)
+    if not connected:
+        return projection
+    if not projection:
+        return connected
+    # Prefer connected-component boxes when counts are similar because they are tighter for OCR.
+    if abs(len(connected) - len(projection)) <= 1:
+        return connected
+    # If connected components over-merge or under-split badly, projection is a safer fallback.
+    return projection if len(projection) > len(connected) else connected
 
 
 def parse_args() -> argparse.Namespace:

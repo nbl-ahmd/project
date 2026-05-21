@@ -22,6 +22,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--shear", type=float, default=2.0, help="Shear augmentation for angled handwriting.")
     parser.add_argument("--perspective", type=float, default=0.0005, help="Perspective augmentation for camera-captured pages.")
     parser.add_argument("--scale", type=float, default=0.35, help="Scale augmentation.")
+    parser.add_argument("--mosaic", type=float, default=0.0, help="Mosaic augmentation. Keep 0 for thin line boxes.")
+    parser.add_argument("--mixup", type=float, default=0.0, help="MixUp augmentation. Keep 0 for thin line boxes.")
+    parser.add_argument("--copy-paste", type=float, default=0.0, help="Copy-paste augmentation. Keep 0 for line detection.")
+    parser.add_argument("--close-mosaic", type=int, default=0, help="Disable mosaic from this many final epochs.")
     parser.add_argument("--patience", type=int, default=20, help="Early stopping patience.")
     parser.add_argument(
         "--weights-out",
@@ -49,6 +53,10 @@ def main() -> None:
         "shear": args.shear,
         "perspective": args.perspective,
         "scale": args.scale,
+        "mosaic": args.mosaic,
+        "mixup": args.mixup,
+        "copy_paste": args.copy_paste,
+        "close_mosaic": args.close_mosaic,
         "patience": args.patience,
     }
     if args.device is not None:
