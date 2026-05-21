@@ -18,6 +18,14 @@ All generated crops, manifests, models, and processed files will also stay under
 
 For 53 full prescription images, use corrected annotations rather than only heuristic crops. The region and line YOLO notebooks use an approximate 70/15/15 train, validation, and test split. Do not inflate the test set with augmented duplicates. Training-time augmentation is enabled in YOLO for rotation, shear, perspective, and scale changes.
 
+Trained model weights are copied to stable Drive-backed paths:
+
+`models/region_yolo_best.pt`
+
+`models/line_yolo_best.pt`
+
+Use these paths in later notebooks instead of rerunning YOLO training.
+
 - `phase4_region_line_segmentation_colab.ipynb`
   - follows the thesis order for the first two stages
   - preprocesses raw full prescription pages
