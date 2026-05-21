@@ -4,11 +4,16 @@
 \usepackage{amsmath}
 \usepackage{booktabs}
 \usepackage{array}
+\usepackage{tabularx}
 \usepackage{url}
 \usepackage{cite}
 \usepackage{epsfig}
 \usepackage{rotating}
 \usepackage{eufrak}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, shapes.geometric}
+
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
 
 \graphicspath{{./}}
 
@@ -146,6 +151,29 @@ The proposed methodology is a region-aware prescription recognition framework. T
 \label{fig:architecture}
 \end{figure}
 
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+  node distance=7mm and 7mm,
+  block/.style={draw, rounded corners, align=center, minimum height=9mm, text width=0.26\textwidth, font=\small},
+  arrow/.style={-{Latex[length=2mm]}, thick}
+]
+\node[block] (raw) {Raw prescription\\photographs};
+\node[block, right=of raw] (pre) {Preprocessing\\illumination, thresholding, normalization};
+\node[block, right=of pre] (region) {YOLO handwritten\\region detector};
+\node[block, below=of region] (seg) {Line and word\\segmentation};
+\node[block, left=of seg] (ocr) {Fine-tuned TrOCR\\medicine-word OCR};
+\node[block, left=of ocr] (valid) {Rules and drug\\lexicon validation};
+\draw[arrow] (raw) -- (pre);
+\draw[arrow] (pre) -- (region);
+\draw[arrow] (region) -- (seg);
+\draw[arrow] (seg) -- (ocr);
+\draw[arrow] (ocr) -- (valid);
+\end{tikzpicture}
+\caption{Implemented inference flow from a full prescription image to validated medicine-name predictions.}
+\label{fig:implemented-flow}
+\end{figure}
+
 \section{Pipeline Formulation}
 
 Let the input prescription image be represented as $I$. The preprocessing stage transforms $I$ into a cleaned page image $P$ by resizing, deskewing, denoising, and contrast enhancement. The page transformation is represented in Equation \ref{eq:preprocessing}.
@@ -196,7 +224,8 @@ Table \ref{tab:pipeline-modules} summarizes the modules in the proposed system. 
 \centering
 \caption{Major modules in the proposed prescription recognition pipeline}
 \label{tab:pipeline-modules}
-\begin{tabular}{p{0.25\textwidth}p{0.58\textwidth}}
+\small
+\begin{tabularx}{\textwidth}{>{\bfseries\raggedright\arraybackslash}p{0.26\textwidth}Y}
 \toprule
 \textbf{Module} & \textbf{Function} \\
 \midrule
@@ -207,7 +236,7 @@ Word segmentation & Converts line crops into individual word crops for word-leve
 OCR recognition & Uses a fine-tuned TrOCR model to recognise the medicine name from cropped word images. \\
 Validation & Applies dosage-frequency rules and lexicon matching to improve interpretability and flag uncertain outputs. \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \section{Evaluation Metrics}
@@ -247,18 +276,19 @@ The implementation is organized around a pipeline folder containing scripts for 
 \centering
 \caption{Implementation artifacts developed for the project}
 \label{tab:implementation-artifacts}
-\begin{tabular}{p{0.30\textwidth}p{0.53\textwidth}}
+\small
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{0.40\textwidth}Y}
 \toprule
 \textbf{Artifact} & \textbf{Purpose} \\
 \midrule
-\texttt{phase4\_trocr\_word\_level.ipynb} & Trains and evaluates TrOCR on cropped medicine-word images and includes final inference cells. \\
-\texttt{phase4\_full\_prescription\_annotation\_tools.ipynb} & Provides Colab/Jupyter preprocessing, manual region cropping, word-crop annotation, and dataset export. \\
-\texttt{phase4\_layout\_yolo\_training.ipynb} & Converts corrected region boxes into YOLO format and trains a handwritten-region detector. \\
-\texttt{pipeline/app/annotator\_app.py} & Streamlit interface for line-level transcription and dosage-frequency annotation. \\
-\texttt{pipeline/app/word\_annotator\_app.py} & Streamlit interface for word-level medicine-name annotation. \\
-\texttt{pipeline/scripts/run\_end\_to\_end.py} & Runs full prescription preprocessing, region detection, segmentation, OCR, and validation. \\
+\path{phase4_trocr_word_level.ipynb} & Trains and evaluates TrOCR on cropped medicine-word images and includes final inference cells. \\
+\path{phase4_full_prescription_annotation_tools.ipynb} & Provides Colab/Jupyter preprocessing, manual region cropping, word-crop annotation, and dataset export. \\
+\path{phase4_layout_yolo_training.ipynb} & Converts corrected region boxes into YOLO format and trains a handwritten-region detector. \\
+\path{pipeline/app/annotator_app.py} & Streamlit interface for line-level transcription and dosage-frequency annotation. \\
+\path{pipeline/app/word_annotator_app.py} & Streamlit interface for word-level medicine-name annotation. \\
+\path{pipeline/scripts/run_end_to_end.py} & Runs full prescription preprocessing, region detection, segmentation, OCR, and validation. \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \section{Data Preparation}
@@ -271,7 +301,8 @@ Table \ref{tab:datasets} describes the role of each dataset in the implementatio
 \centering
 \caption{Datasets and their role in the implementation}
 \label{tab:datasets}
-\begin{tabular}{p{0.30\textwidth}p{0.53\textwidth}}
+\small
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{0.32\textwidth}Y}
 \toprule
 \textbf{Dataset} & \textbf{Role in this thesis} \\
 \midrule
@@ -280,7 +311,7 @@ Raw custom prescription images & Provides full prescription pages for preprocess
 Drug lexicon file & Provides medicine-name candidates for post-OCR correction and validation. \\
 Corrected region boxes & Provides training labels for YOLO handwritten-region detection. \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \section{Annotation Workflow}
@@ -297,6 +328,29 @@ The initial cropper used a heuristic image-processing method that estimated the 
 \section{OCR Training}
 
 The OCR model is based on \texttt{microsoft/trocr-base-handwritten}. The model was fine-tuned on the medicine-name column of the combined cropped-word dataset. The current training notebook is Kaggle-ready and uses train-only image augmentation rather than storing a permanently augmented dataset. The augmentation applies handwriting-style geometric and photometric perturbations such as small rotation, translation, scaling, contrast change, blur, and noise. The final fine-tuning configuration trains the full encoder-decoder model, uses beam search during evaluation, selects the best checkpoint using exact-match accuracy, and computes exact-match accuracy, case-insensitive exact-match accuracy, CER, and WER.
+
+\subsection{Transformer Adaptation}
+
+The work does not claim a new transformer architecture. Instead, the contribution is the domain adaptation and training workflow applied around the pretrained TrOCR transformer. The pretrained model is adapted to prescription medicine-name recognition through the following changes: a combined medical word-crop dataset, train-only handwriting augmentation, full encoder-decoder fine-tuning instead of decoder-only tuning, explicit decoder-input preparation for stable training, beam-search decoding, and best-checkpoint selection using exact-match accuracy.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+  node distance=6mm,
+  block/.style={draw, rounded corners, align=center, minimum height=8mm, text width=0.76\textwidth, font=\small},
+  arrow/.style={-{Latex[length=2mm]}, thick}
+]
+\node[block] (base) {Pretrained \texttt{microsoft/trocr-base-handwritten}\\vision encoder + autoregressive text decoder};
+\node[block, below=of base] (data) {Prescription-domain adaptation\\combined medicine-word dataset + train-time augmentation};
+\node[block, below=of data] (train) {Fine-tuning changes\\full encoder-decoder training, explicit decoder inputs, checkpoint selection by exact match};
+\node[block, below=of train] (decode) {Inference changes\\beam search, text normalization, lexicon/rule validation};
+\draw[arrow] (base) -- (data);
+\draw[arrow] (data) -- (train);
+\draw[arrow] (train) -- (decode);
+\end{tikzpicture}
+\caption{Adaptation applied around the pretrained TrOCR transformer for prescription medicine-name recognition.}
+\label{fig:trocr-adaptation}
+\end{figure}
 
 \section{Post-OCR Validation}
 
