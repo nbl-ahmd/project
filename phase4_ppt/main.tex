@@ -306,6 +306,50 @@ Training Steps & 2500 \\
 
 \end{frame}
 
+\begin{frame}{Small GPT/LLM OCR Comparison}
+\small
+\textbf{Manual GPT/LLM recognition sample:} 12 cropped medicine-word examples.\\
+\textit{This is an illustrative comparison only; it is not the same-sized validation split used for TrOCR.}
+
+\vspace{0.25cm}
+\begin{columns}
+\begin{column}{0.48\textwidth}
+\centering
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{l c}
+\hline
+\textbf{Metric} & \textbf{GPT/LLM} \\
+\hline
+Strict exact match & 50.00\% \\
+Case-insensitive exact & 58.33\% \\
+CER & 30.00\% \\
+WER & 53.85\% \\
+Samples & 12 \\
+\hline
+\end{tabular}
+\end{column}
+\begin{column}{0.48\textwidth}
+\centering
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{l c}
+\hline
+\textbf{Metric} & \textbf{Our TrOCR} \\
+\hline
+Strict exact match & 83.16\% \\
+Case-insensitive exact & 89.06\% \\
+CER & 5.91\% \\
+WER & 17.02\% \\
+Samples & 1033 \\
+\hline
+\end{tabular}
+\end{column}
+\end{columns}
+
+\vspace{0.25cm}
+\footnotesize
+Examples of GPT/LLM errors: \texttt{nexe} $\rightarrow$ \texttt{Neel}, \texttt{Zo.mups 20} $\rightarrow$ \texttt{20-mg}, \texttt{Progut} $\rightarrow$ \texttt{Pmgt}.
+\end{frame}
+
 
 \section{Comparison with Prior Work}
 
