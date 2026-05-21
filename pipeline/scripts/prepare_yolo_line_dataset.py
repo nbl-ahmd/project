@@ -9,8 +9,10 @@ Output:
 dataset_root/
   images/train/*.png
   images/val/*.png
+  images/test/*.png
   labels/train/*.txt
   labels/val/*.txt
+  labels/test/*.txt
   data.yaml
 """
 
@@ -31,6 +33,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--class-name", type=str, default="handwritten_line")
     parser.add_argument("--val-ratio", type=float, default=0.2)
+    parser.add_argument("--test-ratio", type=float, default=0.15)
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
 
@@ -64,14 +67,22 @@ def main() -> None:
         raise ValueError("No region_id values found in line manifest.")
     rng.shuffle(region_ids)
 
-    n_val = max(1, int(round(len(region_ids) * args.val_ratio))) if len(region_ids) > 1 else 0
-    val_ids = set(region_ids[:n_val])
+    if args.val_ratio < 0 or args.test_ratio < 0 or args.val_ratio + args.test_ratio >= 1:
+        raise ValueError("val-ratio and test-ratio must be non-negative and sum to less than 1.")
 
-    for split in ["train", "val"]:
+    n_test = max(1, int(round(len(region_ids) * args.test_ratio))) if len(region_ids) > 2 and args.test_ratio > 0 else 0
+    remaining_after_test = len(region_ids) - n_test
+    n_val = max(1, int(round(len(region_ids) * args.val_ratio))) if remaining_after_test > 1 and args.val_ratio > 0 else 0
+    if n_test + n_val >= len(region_ids):
+        n_val = max(0, len(region_ids) - n_test - 1)
+    test_ids = set(region_ids[:n_test])
+    val_ids = set(region_ids[n_test : n_test + n_val])
+
+    for split in ["train", "val", "test"]:
         (args.output_dir / "images" / split).mkdir(parents=True, exist_ok=True)
         (args.output_dir / "labels" / split).mkdir(parents=True, exist_ok=True)
 
-    written = {"train": 0, "val": 0}
+    written = {"train": 0, "val": 0, "test": 0}
     for region_id in region_ids:
         region_rows = lines[lines["region_id"].astype(str) == region_id]
         src = Path(str(region_rows.iloc[0]["region_image_path"]))
@@ -81,7 +92,12 @@ def main() -> None:
         if image is None:
             continue
         height, width = image.shape[:2]
-        split = "val" if region_id in val_ids else "train"
+        if region_id in test_ids:
+            split = "test"
+        elif region_id in val_ids:
+            split = "val"
+        else:
+            split = "train"
 
         image_name = f"{region_id}{src.suffix.lower() if src.suffix else '.png'}"
         dst_img = args.output_dir / "images" / split / image_name
@@ -107,6 +123,7 @@ def main() -> None:
     yaml_text = f"""path: {args.output_dir.resolve()}
 train: images/train
 val: images/val
+test: images/test
 names:
   0: {args.class_name}
 """
@@ -114,6 +131,7 @@ names:
     print("YOLO line dataset prepared.")
     print(f"Train regions: {written['train']}")
     print(f"Val regions: {written['val']}")
+    print(f"Test regions: {written['test']}")
     print(f"Data YAML: {args.output_dir / 'data.yaml'}")
 
 

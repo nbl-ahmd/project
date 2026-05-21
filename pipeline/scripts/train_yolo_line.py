@@ -20,6 +20,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--degrees", type=float, default=8.0, help="Rotation augmentation for slanted handwritten lines.")
     parser.add_argument("--shear", type=float, default=2.0, help="Shear augmentation for angled handwriting.")
     parser.add_argument("--perspective", type=float, default=0.0005, help="Perspective augmentation for camera-captured pages.")
+    parser.add_argument("--scale", type=float, default=0.35, help="Scale augmentation.")
+    parser.add_argument("--patience", type=int, default=20, help="Early stopping patience.")
     return parser.parse_args()
 
 
@@ -39,6 +41,8 @@ def main() -> None:
         "degrees": args.degrees,
         "shear": args.shear,
         "perspective": args.perspective,
+        "scale": args.scale,
+        "patience": args.patience,
     }
     if args.device is not None:
         train_kwargs["device"] = args.device

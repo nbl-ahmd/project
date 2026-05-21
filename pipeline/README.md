@@ -16,12 +16,15 @@ Keep raw prescription images in:
 
 All generated crops, manifests, models, and processed files will also stay under Google Drive, so they persist after the Colab runtime disconnects.
 
+For 53 full prescription images, use corrected annotations rather than only heuristic crops. The region and line YOLO notebooks use an approximate 70/15/15 train, validation, and test split. Do not inflate the test set with augmented duplicates. Training-time augmentation is enabled in YOLO for rotation, shear, perspective, and scale changes.
+
 - `phase4_region_line_segmentation_colab.ipynb`
   - follows the thesis order for the first two stages
   - preprocesses raw full prescription pages
   - manually annotates handwritten-region boxes, then trains a YOLO region detector
   - manually annotates/corrects line boxes, then trains a YOLO line detector
   - runs region segmentation followed by line segmentation with trained models
+  - keeps OpenCV line segmentation as a bootstrap tool, while the final line detector is YOLO trained on corrected line boxes
 
 - `phase4_full_prescription_annotation_tools.ipynb`
   - preprocesses full prescription images

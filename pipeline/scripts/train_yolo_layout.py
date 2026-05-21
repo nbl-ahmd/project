@@ -17,6 +17,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--project", type=Path, default=Path("runs/layout"))
     parser.add_argument("--name", type=str, default="handwritten_region_yolo")
     parser.add_argument("--device", type=str, default=None)
+    parser.add_argument("--degrees", type=float, default=5.0, help="Rotation augmentation for skewed prescription pages.")
+    parser.add_argument("--shear", type=float, default=1.5, help="Shear augmentation for camera-captured pages.")
+    parser.add_argument("--perspective", type=float, default=0.0005, help="Perspective augmentation for page photographs.")
+    parser.add_argument("--scale", type=float, default=0.35, help="Scale augmentation.")
+    parser.add_argument("--patience", type=int, default=20, help="Early stopping patience.")
     return parser.parse_args()
 
 
@@ -33,6 +38,11 @@ def main() -> None:
         "project": str(args.project),
         "name": args.name,
         "exist_ok": True,
+        "degrees": args.degrees,
+        "shear": args.shear,
+        "perspective": args.perspective,
+        "scale": args.scale,
+        "patience": args.patience,
     }
     if args.device is not None:
         train_kwargs["device"] = args.device

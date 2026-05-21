@@ -10,8 +10,10 @@ Output:
 dataset_root/
   images/train/*.jpg
   images/val/*.jpg
+  images/test/*.jpg
   labels/train/*.txt
   labels/val/*.txt
+  labels/test/*.txt
   data.yaml
 """
 
@@ -32,6 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--class-name", type=str, default="handwritten_region")
     parser.add_argument("--val-ratio", type=float, default=0.2)
+    parser.add_argument("--test-ratio", type=float, default=0.15)
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
 
@@ -77,14 +80,22 @@ def main() -> None:
         raise ValueError("No matching page_id values between page and region manifests.")
     rng.shuffle(page_ids)
 
-    n_val = max(1, int(round(len(page_ids) * args.val_ratio))) if len(page_ids) > 1 else 0
-    val_ids = set(page_ids[:n_val])
+    if args.val_ratio < 0 or args.test_ratio < 0 or args.val_ratio + args.test_ratio >= 1:
+        raise ValueError("val-ratio and test-ratio must be non-negative and sum to less than 1.")
 
-    for split in ["train", "val"]:
+    n_test = max(1, int(round(len(page_ids) * args.test_ratio))) if len(page_ids) > 2 and args.test_ratio > 0 else 0
+    remaining_after_test = len(page_ids) - n_test
+    n_val = max(1, int(round(len(page_ids) * args.val_ratio))) if remaining_after_test > 1 and args.val_ratio > 0 else 0
+    if n_test + n_val >= len(page_ids):
+        n_val = max(0, len(page_ids) - n_test - 1)
+    test_ids = set(page_ids[:n_test])
+    val_ids = set(page_ids[n_test : n_test + n_val])
+
+    for split in ["train", "val", "test"]:
         (args.output_dir / "images" / split).mkdir(parents=True, exist_ok=True)
         (args.output_dir / "labels" / split).mkdir(parents=True, exist_ok=True)
 
-    written = {"train": 0, "val": 0}
+    written = {"train": 0, "val": 0, "test": 0}
     for page_id in page_ids:
         page = page_rows.loc[page_id]
         src = Path(str(page[page_path_col]))
@@ -92,7 +103,12 @@ def main() -> None:
             continue
         width = int(page["width"])
         height = int(page["height"])
-        split = "val" if page_id in val_ids else "train"
+        if page_id in test_ids:
+            split = "test"
+        elif page_id in val_ids:
+            split = "val"
+        else:
+            split = "train"
 
         image_name = f"{page_id}{src.suffix.lower() if src.suffix else '.jpg'}"
         dst_img = args.output_dir / "images" / split / image_name
@@ -118,6 +134,7 @@ def main() -> None:
     yaml_text = f"""path: {args.output_dir.resolve()}
 train: images/train
 val: images/val
+test: images/test
 names:
   0: {args.class_name}
 """
@@ -125,6 +142,7 @@ names:
     print("YOLO layout dataset prepared.")
     print(f"Train pages: {written['train']}")
     print(f"Val pages: {written['val']}")
+    print(f"Test pages: {written['test']}")
     print(f"Data YAML: {args.output_dir / 'data.yaml'}")
 
 
