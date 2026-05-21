@@ -40,7 +40,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--copy-images",
         action="store_true",
-        help="Copy images. If false, script creates symlinks instead.",
+        default=True,
+        help="Copy images into the package. This is the default and is required on Google Drive.",
+    )
+    parser.add_argument(
+        "--symlink-images",
+        action="store_true",
+        help="Use symlinks instead of copies. Do not use this on Google Drive/Colab.",
     )
     return parser.parse_args()
 
@@ -56,10 +62,10 @@ def main() -> None:
         dst = images_out / src.name
         if dst.exists():
             dst.unlink()
-        if args.copy_images:
-            shutil.copy2(src, dst)
-        else:
+        if args.symlink_images:
             dst.symlink_to(src.resolve())
+        else:
+            shutil.copy2(src, dst)
 
         rows.append({"image_name": src.name, "image_path": str(dst)})
 
@@ -79,4 +85,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
