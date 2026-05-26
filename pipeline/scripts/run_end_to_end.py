@@ -169,7 +169,7 @@ def safe_id(path: Path) -> str:
 def write_csv(path: Path, rows: list[dict], fieldnames: list[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
 
@@ -243,7 +243,7 @@ def best_lexicon_match(text: str, lexicon: list[str]) -> tuple[str, float, str]:
                 score = 1.0
             elif candidate_l in drug_l or drug_l in candidate_l:
                 score = max(score, min(len(candidate_l), len(drug_l)) / max(len(candidate_l), len(drug_l)))
-            if score > best_score:
+            if score > best_score or (score == best_score and len(drug) > len(best_name)):
                 best_name = drug
                 best_score = score
                 best_candidate = candidate
@@ -270,6 +270,63 @@ def parse_medical_entities(text: str, lexicon: list[str], threshold: float) -> d
         "keep_for_output": "yes" if keep else "no",
         "validation_status": "matched" if is_medicine else ("dose_only" if has_dose_info else "ignored_non_medicine"),
     }
+
+
+def format_corrected_line(row: dict[str, str | float]) -> str:
+    parts = []
+    medicine = normalize_text(str(row.get("medicine_name", "")))
+    dosage = normalize_text(str(row.get("dosage", "")))
+    frequency = normalize_text(str(row.get("frequency", "")))
+    route = normalize_text(str(row.get("route", "")))
+    if medicine:
+        parts.append(medicine)
+    if dosage:
+        parts.append(dosage.replace("; ", " + "))
+    if frequency:
+        parts.append(frequency.replace("; ", " + "))
+    if route:
+        parts.append(route.replace("; ", " + "))
+    return " ".join(parts)
+
+
+def build_line_prediction_rows(
+    line_rows: list[dict],
+    prediction_rows: list[dict],
+    lexicon: list[str],
+    threshold: float,
+) -> list[dict]:
+    predictions_by_line: dict[str, list[dict]] = {}
+    for row in prediction_rows:
+        predictions_by_line.setdefault(str(row.get("line_id", "")), []).append(row)
+
+    line_predictions: list[dict] = []
+    for line in line_rows:
+        line_id = str(line["line_id"])
+        rows = predictions_by_line.get(line_id, [])
+        if rows and rows[0].get("ocr_unit") == "word":
+            rows = sorted(
+                rows,
+                key=lambda row: (
+                    int(row.get("x1_page") or 0),
+                    int(row.get("x1_line") or 0),
+                    str(row.get("word_id", "")),
+                ),
+            )
+        text = normalize_text(" ".join(str(row.get("ocr_text", "")) for row in rows))
+        parsed = parse_medical_entities(text, lexicon, threshold)
+        parsed_text = str(parsed.pop("ocr_text", ""))
+        output_row = {
+            "page_id": line["page_id"],
+            "region_id": line["region_id"],
+            "line_id": line_id,
+            "line_image_path": line["line_image_path"],
+            "line_context_image_path": line.get("context_image_path", ""),
+            "line_ocr_text": parsed_text,
+            **parsed,
+        }
+        output_row["final_corrected_text"] = format_corrected_line(output_row)
+        line_predictions.append(output_row)
+    return line_predictions
 
 
 def proposal_region_box(page_bgr: np.ndarray) -> tuple[int, int, int, int]:
@@ -685,6 +742,14 @@ def main() -> None:
                             "line_id": line.line_id,
                             "word_id": "",
                             "image_path": str(line.image_path),
+                            "x1_line": "",
+                            "y1_line": "",
+                            "x2_line": "",
+                            "y2_line": "",
+                            "x1_page": line.x1_page,
+                            "y1_page": line.y1_page,
+                            "x2_page": line.x2_page,
+                            "y2_page": line.y2_page,
                             **parsed,
                         }
                     )
@@ -723,9 +788,20 @@ def main() -> None:
                             "line_id": word["line_id"],
                             "word_id": word["word_id"],
                             "image_path": str(image_path),
+                            "x1_line": word["x1_line"],
+                            "y1_line": word["y1_line"],
+                            "x2_line": word["x2_line"],
+                            "y2_line": word["y2_line"],
+                            "x1_page": word["x1_page"],
+                            "y1_page": word["y1_page"],
+                            "x2_page": word["x2_page"],
+                            "y2_page": word["y2_page"],
                             **parsed,
                         }
                     )
+
+    line_prediction_rows = build_line_prediction_rows(line_rows, prediction_rows, lexicon, args.match_threshold)
+    filtered_line_rows = [row for row in line_prediction_rows if row.get("keep_for_output") == "yes"]
 
     write_csv(args.output_dir / "page_manifest.csv", page_rows, ["page_id", "source_path", "processed_path", "deskew_angle_deg", "width", "height"])
     write_csv(args.output_dir / "region_manifest.csv", region_rows, ["page_id", "region_id", "region_image_path", "x1_page", "y1_page", "x2_page", "y2_page"])
@@ -735,7 +811,7 @@ def main() -> None:
     write_csv(
         args.output_dir / "predictions.csv",
         prediction_rows,
-        ["ocr_unit", "page_id", "region_id", "line_id", "word_id", "image_path", "ocr_text", "medicine_name", "medicine_match_score", "matched_candidate", "dosage", "frequency", "route", "keep_for_output", "validation_status"],
+        ["ocr_unit", "page_id", "region_id", "line_id", "word_id", "image_path", "x1_line", "y1_line", "x2_line", "y2_line", "x1_page", "y1_page", "x2_page", "y2_page", "ocr_text", "medicine_name", "medicine_match_score", "matched_candidate", "dosage", "frequency", "route", "keep_for_output", "validation_status"],
     )
     filtered_rows = [row for row in prediction_rows if row.get("keep_for_output") == "yes"]
     write_csv(
@@ -743,8 +819,20 @@ def main() -> None:
         filtered_rows,
         ["page_id", "region_id", "line_id", "word_id", "image_path", "ocr_text", "medicine_name", "medicine_match_score", "matched_candidate", "dosage", "frequency", "route", "validation_status"],
     )
+    write_csv(
+        args.output_dir / "line_predictions.csv",
+        line_prediction_rows,
+        ["page_id", "region_id", "line_id", "line_image_path", "line_context_image_path", "line_ocr_text", "medicine_name", "medicine_match_score", "matched_candidate", "dosage", "frequency", "route", "final_corrected_text", "keep_for_output", "validation_status"],
+    )
+    write_csv(
+        args.output_dir / "line_medicine_dosage_predictions.csv",
+        filtered_line_rows,
+        ["page_id", "region_id", "line_id", "line_image_path", "line_context_image_path", "line_ocr_text", "medicine_name", "medicine_match_score", "matched_candidate", "dosage", "frequency", "route", "final_corrected_text", "validation_status"],
+    )
     (args.output_dir / "predictions.json").write_text(json.dumps(prediction_rows, indent=2), encoding="utf-8")
     (args.output_dir / "medicine_dosage_predictions.json").write_text(json.dumps(filtered_rows, indent=2), encoding="utf-8")
+    (args.output_dir / "line_predictions.json").write_text(json.dumps(line_prediction_rows, indent=2), encoding="utf-8")
+    (args.output_dir / "line_medicine_dosage_predictions.json").write_text(json.dumps(filtered_line_rows, indent=2), encoding="utf-8")
 
     print("End-to-end run complete.")
     print(f"Pages: {len(page_rows)}")
@@ -753,6 +841,7 @@ def main() -> None:
     print(f"Words: {len(word_rows)}")
     print(f"Predictions: {args.output_dir / 'predictions.csv'}")
     print(f"Medicine/dosage only: {args.output_dir / 'medicine_dosage_predictions.csv'}")
+    print(f"Line-wise corrected medicine/dosage: {args.output_dir / 'line_medicine_dosage_predictions.csv'}")
 
 
 if __name__ == "__main__":

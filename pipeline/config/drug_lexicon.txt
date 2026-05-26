@@ -76,3 +76,71 @@ Tridosil
 Trilock
 Vifas
 Zithrin
+AB-Med
+Acetaminophen
+Allegra
+Amodclav
+Amodclav 625
+Amoxclav
+Amoxiclav
+Amoxicillin
+Augmentin
+Azee
+Azee 250
+Azee 500
+Azithral
+Azithromycin
+Baclof
+Baclofen
+Becosules
+Benadryl
+Betnesol
+Budecort
+Calpol
+Cefixime
+Cetirizine
+Crocin
+Deriphyllin
+Defcort
+Dolo
+Dolo 500
+Dolo 650
+Domperidone
+Duolin
+Emeset
+Emeset 4
+Erythromycin
+Fexofenadine
+Hyponat
+Jumox
+Levosalbutamol
+Levocetirizine
+Lukemont
+Lukemont FX
+Montair FX
+Montelukast
+Mucaine Gel
+Mucaine
+Mucum Gel
+Mucum
+Naxdom
+Naxdom 250
+Naxdom 500
+Naxdomm
+Naproxen
+Orofer
+Pan
+Pan 40
+Pantocid
+Pantop
+Pantoprazole
+Paracetamol
+Rantac
+Salbutamol
+Sinarest
+Sompraz
+Sucralfate
+Taxim
+Telekast
+Vomikind
+Zerodol

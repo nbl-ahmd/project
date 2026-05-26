@@ -112,7 +112,7 @@ def best_match(text: str, lexicon: list[str]) -> tuple[str, float, str]:
                 score = 1.0
             elif candidate_l in drug_l or drug_l in candidate_l:
                 score = max(score, min(len(candidate_l), len(drug_l)) / max(len(candidate_l), len(drug_l)))
-            if score > best_score:
+            if score > best_score or (score == best_score and len(drug) > len(best_name)):
                 best_name = drug
                 best_score = score
                 best_candidate = candidate
