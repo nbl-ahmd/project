@@ -149,10 +149,14 @@ Outputs:
 - `region_manifest.csv`
 - `line_manifest.csv`
 - `word_manifest.csv`
+- `segmentation_review.csv`
 - region crops
 - line crops
 - word crops
 - context preview images
+- `segmentation_overview/` paper/PPT-ready overview images with original, binary, and numbered box panels
+
+The line and word segmenters use the final hybrid method: adaptive connected components, projection/gap analysis, and lightweight low-ink separator refinement. This is the default path for thesis figures and OCR-ready word crops. Keep pretrained detectors such as Kraken/CRAFT/DBNet/PaddleOCR as optional ablations only.
 
 ### 5. Build Word OCR Dataset
 

@@ -30,8 +30,8 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.append(str(SCRIPT_DIR))
 
 from preprocess_pages import preprocess_page  # noqa: E402
-from segment_lines import detect_line_boxes, enhance_for_ocr  # noqa: E402
-from segment_words import detect_word_boxes  # noqa: E402
+from segment_lines import binarize_handwriting, detect_line_boxes, detect_line_boxes_with_metadata, enhance_for_ocr  # noqa: E402
+from segment_words import detect_word_boxes, detect_word_boxes_with_metadata  # noqa: E402
 
 
 VALID_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
@@ -67,6 +67,9 @@ class LineCrop:
     y1_page: int
     x2_page: int
     y2_page: int
+    segmentation_method: str = ""
+    quality_flag: str = ""
+    median_component_height: float = 0.0
 
 
 class OCRBackend:
@@ -303,28 +306,40 @@ def create_line_crops(
     line_yolo_model=None,
     line_target_class: int = 0,
     line_yolo_conf: float = 0.25,
-) -> list[LineCrop]:
+) -> tuple[list[LineCrop], dict[str, object]]:
     region_bgr = cv2.imread(str(region.image_path))
     if region_bgr is None:
-        return []
+        return [], {"method": "unreadable_region", "quality_flag": "unreadable_region"}
     if line_yolo_model is not None:
         boxes = predict_yolo_regions(line_yolo_model, region.image_path, line_target_class, line_yolo_conf)
+        metadata: dict[str, object] = {
+            "method": "line_yolo",
+            "quality_flag": "ok" if boxes else "no_lines_detected",
+            "median_component_height": 0.0,
+            "rejected_tiny_components": 0,
+            "candidate_counts": f"line_yolo:{len(boxes)}",
+        }
     else:
-        boxes = detect_line_boxes(region_bgr, min_line_h=min_line_height, merge_gap=merge_gap)
+        boxes, metadata = detect_line_boxes_with_metadata(region_bgr, min_line_h=min_line_height, merge_gap=merge_gap)
     if not boxes:
         h, w = region_bgr.shape[:2]
         boxes = detect_line_boxes(region_bgr, min_line_h=min_line_height, merge_gap=merge_gap)
         if not boxes:
             boxes = [(0, 0, w - 1, h - 1)]
+            metadata["method"] = f"{metadata.get('method', 'hybrid')}_full_region_fallback"
+            metadata["quality_flag"] = "fallback_full_region"
 
     lines_dir = output_dir / "lines"
     context_dir = output_dir / "context"
+    overview_dir = output_dir.parent / "segmentation_overview"
     lines_dir.mkdir(parents=True, exist_ok=True)
     context_dir.mkdir(parents=True, exist_ok=True)
+    overview_dir.mkdir(parents=True, exist_ok=True)
 
     context = region_bgr.copy()
     crops: list[LineCrop] = []
     h, w = region_bgr.shape[:2]
+    emitted_boxes: list[tuple[int, int, int, int]] = []
     for idx, (x1, y1, x2, y2) in enumerate(boxes):
         pad = max(0, line_padding)
         x1p, y1p = max(0, x1 - pad), max(0, y1 - pad)
@@ -335,6 +350,8 @@ def create_line_crops(
         line_path = lines_dir / f"{line_id}.png"
         cv2.imwrite(str(line_path), enhance_for_ocr(region_bgr[y1p:y2p, x1p:x2p]))
         cv2.rectangle(context, (x1p, y1p), (x2p, y2p), (0, 220, 0), 2)
+        cv2.putText(context, str(idx), (x1p, max(15, y1p - 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 160, 0), 2)
+        emitted_boxes.append((x1p, y1p, x2p, y2p))
         crops.append(
             LineCrop(
                 region.page_id,
@@ -346,10 +363,20 @@ def create_line_crops(
                 region.y1 + y1p,
                 region.x1 + x2p,
                 region.y1 + y2p,
+                str(metadata.get("method", "")),
+                str(metadata.get("quality_flag", "")),
+                float(metadata.get("median_component_height", 0.0) or 0.0),
             )
         )
     cv2.imwrite(str(context_dir / f"{region.region_id}_context.png"), context)
-    return crops
+    overview = region_bgr.copy()
+    for idx, (x1, y1, x2, y2) in enumerate(emitted_boxes):
+        cv2.rectangle(overview, (x1, y1), (x2, y2), (0, 220, 0), 2)
+        cv2.putText(overview, f"L{idx}", (x1, max(15, y1 - 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 160, 0), 2)
+    binary = cv2.cvtColor(binarize_handwriting(region_bgr), cv2.COLOR_GRAY2BGR)
+    cv2.imwrite(str(overview_dir / f"{region.region_id}_line_overview.png"), cv2.hconcat([region_bgr, binary, overview]))
+    metadata["detected_count"] = len(crops)
+    return crops, metadata
 
 
 def create_word_crops(
@@ -363,7 +390,7 @@ def create_word_crops(
     if line_bgr is None:
         return []
 
-    boxes = detect_word_boxes(
+    boxes, metadata = detect_word_boxes_with_metadata(
         line_bgr,
         min_word_width=min_word_width,
         min_word_height=min_word_height,
@@ -374,8 +401,10 @@ def create_word_crops(
 
     words_dir = output_dir / "words"
     context_dir = output_dir / "word_context"
+    overview_dir = output_dir.parent / "segmentation_overview"
     words_dir.mkdir(parents=True, exist_ok=True)
     context_dir.mkdir(parents=True, exist_ok=True)
+    overview_dir.mkdir(parents=True, exist_ok=True)
 
     context = line_bgr.copy()
     h, w = line_bgr.shape[:2]
@@ -391,7 +420,8 @@ def create_word_crops(
         word_path = words_dir / f"{word_id}.png"
         context_path = context_dir / f"{line.line_id}_word_context.png"
         cv2.imwrite(str(word_path), enhance_for_ocr(line_bgr[y1p:y2p, x1p:x2p]))
-        cv2.rectangle(context, (x1p, y1p), (x2p, y2p), (0, 120, 255), 2)
+        cv2.rectangle(context, (x1p, y1p), (x2p, y2p), (0, 0, 230), 2)
+        cv2.putText(context, str(idx), (x1p, max(14, y1p - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 230), 2)
         rows.append(
             {
                 "page_id": line.page_id,
@@ -405,9 +435,19 @@ def create_word_crops(
                 "y1_page": line.y1_page + y1p,
                 "x2_page": line.x1_page + x2p,
                 "y2_page": line.y1_page + y2p,
+                "x1_line": x1p,
+                "y1_line": y1p,
+                "x2_line": x2p,
+                "y2_line": y2p,
+                "segmentation_method": metadata["method"],
+                "quality_flag": metadata["quality_flag"],
+                "median_component_width": metadata["median_component_width"],
+                "adaptive_merge_gap": metadata["adaptive_merge_gap"],
             }
         )
     cv2.imwrite(str(context_dir / f"{line.line_id}_word_context.png"), context)
+    binary = cv2.cvtColor(binarize_handwriting(line_bgr), cv2.COLOR_GRAY2BGR)
+    cv2.imwrite(str(overview_dir / f"{line.line_id}_word_overview.png"), cv2.hconcat([line_bgr, binary, context]))
     return rows
 
 
@@ -477,6 +517,7 @@ def main() -> None:
     line_rows: list[dict] = []
     word_rows: list[dict] = []
     prediction_rows: list[dict] = []
+    review_rows: list[dict] = []
 
     for src_path in list_images(args.input):
         raw = cv2.imread(str(src_path))
@@ -519,7 +560,7 @@ def main() -> None:
                     "y2_page": region.y2,
                 }
             )
-            lines = create_line_crops(
+            lines, line_metadata = create_line_crops(
                 region,
                 lines_root,
                 args.min_line_height,
@@ -528,6 +569,19 @@ def main() -> None:
                 line_yolo_model=line_yolo_model,
                 line_target_class=args.line_target_class,
                 line_yolo_conf=args.line_yolo_conf,
+            )
+            review_rows.append(
+                {
+                    "page_id": region.page_id,
+                    "region_id": region.region_id,
+                    "line_id": "",
+                    "stage": "line",
+                    "detected_count": line_metadata.get("detected_count", len(lines)),
+                    "method": line_metadata.get("method", ""),
+                    "quality_flag": line_metadata.get("quality_flag", ""),
+                    "rejected_tiny_components": line_metadata.get("rejected_tiny_components", 0),
+                    "notes": line_metadata.get("candidate_counts", ""),
+                }
             )
             for line in lines:
                 line_row = {
@@ -545,6 +599,10 @@ def main() -> None:
                     "y1_page": line.y1_page,
                     "x2_page": line.x2_page,
                     "y2_page": line.y2_page,
+                    "segmentation_method": line.segmentation_method,
+                    "quality_flag": line.quality_flag,
+                    "median_component_height": line.median_component_height,
+                    "line_height": line.y2_page - line.y1_page,
                 }
                 line_rows.append(line_row)
 
@@ -572,6 +630,19 @@ def main() -> None:
                     word_merge_gap=args.word_merge_gap,
                 )
                 word_rows.extend(words)
+                review_rows.append(
+                    {
+                        "page_id": line.page_id,
+                        "region_id": line.region_id,
+                        "line_id": line.line_id,
+                        "stage": "word",
+                        "detected_count": len(words),
+                        "method": words[0].get("segmentation_method", "hybrid_components_gap_valley") if words else "hybrid_components_gap_valley",
+                        "quality_flag": "ok" if words else "no_words_detected",
+                        "rejected_tiny_components": "",
+                        "notes": f"word_count={len(words)}",
+                    }
+                )
                 for word in words:
                     image_path = Path(str(word["word_image_path"]))
                     ocr_text = ocr.predict(image_path)
@@ -590,8 +661,9 @@ def main() -> None:
 
     write_csv(args.output_dir / "page_manifest.csv", page_rows, ["page_id", "source_path", "processed_path", "deskew_angle_deg", "width", "height"])
     write_csv(args.output_dir / "region_manifest.csv", region_rows, ["page_id", "region_id", "region_image_path", "x1_page", "y1_page", "x2_page", "y2_page"])
-    write_csv(args.output_dir / "line_manifest.csv", line_rows, ["page_id", "region_id", "line_id", "line_image_path", "region_image_path", "context_image_path", "x1_region", "y1_region", "x2_region", "y2_region", "x1_page", "y1_page", "x2_page", "y2_page"])
-    write_csv(args.output_dir / "word_manifest.csv", word_rows, ["page_id", "region_id", "line_id", "word_id", "word_image_path", "line_image_path", "line_context_image_path", "x1_page", "y1_page", "x2_page", "y2_page"])
+    write_csv(args.output_dir / "line_manifest.csv", line_rows, ["page_id", "region_id", "line_id", "line_image_path", "region_image_path", "context_image_path", "x1_region", "y1_region", "x2_region", "y2_region", "x1_page", "y1_page", "x2_page", "y2_page", "segmentation_method", "quality_flag", "median_component_height", "line_height"])
+    write_csv(args.output_dir / "word_manifest.csv", word_rows, ["page_id", "region_id", "line_id", "word_id", "word_image_path", "line_image_path", "line_context_image_path", "x1_line", "y1_line", "x2_line", "y2_line", "x1_page", "y1_page", "x2_page", "y2_page", "segmentation_method", "quality_flag", "median_component_width", "adaptive_merge_gap"])
+    write_csv(args.output_dir / "segmentation_review.csv", review_rows, ["page_id", "region_id", "line_id", "stage", "detected_count", "method", "quality_flag", "rejected_tiny_components", "notes"])
     write_csv(
         args.output_dir / "predictions.csv",
         prediction_rows,
