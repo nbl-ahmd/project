@@ -35,14 +35,40 @@ from segment_words import detect_word_boxes, detect_word_boxes_with_metadata  # 
 
 
 VALID_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
+NON_MEDICAL_TOKENS = {
+    "rx",
+    "symptom",
+    "symptoms",
+    "complaint",
+    "complaints",
+    "diagnosis",
+    "advice",
+    "adv",
+    "test",
+    "review",
+    "follow",
+    "followup",
+    "follow-up",
+    "patient",
+    "name",
+    "age",
+    "sex",
+    "date",
+    "doctor",
+    "dr",
+    "signature",
+    "clinic",
+    "hospital",
+}
 DOSAGE_RE = re.compile(
-    r"\b\d+(?:\.\d+)?\s*(?:mg|mcg|g|gm|ml|iu|unit|units|tab|tabs|tablet|cap|caps|drop|drops|sachet)s?\b",
+    r"\b\d+(?:\.\d+)?\s*(?:mg|mcg|g|gm|ml|iu|unit|units|tab|tabs|tablet|cap|caps|drop|drops|sachet|%)s?\b",
     re.IGNORECASE,
 )
 FREQUENCY_RE = re.compile(
-    r"\b(?:\d\s*-\s*\d\s*-\s*\d|od|bd|tds|qid|hs|sos|prn|daily|night|morning|evening|weekly|once|twice)\b",
+    r"\b(?:\d\s*-\s*\d\s*-\s*\d|od|bd|bid|tds|tid|qid|qds|hs|sos|stat|prn|ac|pc|bbf|daily|night|morning|evening|weekly|once|twice|thrice)\b",
     re.IGNORECASE,
 )
+ROUTE_RE = re.compile(r"\b(?:po|oral|iv|im|sc|sl|topical|inh|nebulization|neb|drops?)\b", re.IGNORECASE)
 
 
 @dataclass
@@ -161,46 +187,88 @@ def load_lexicon(path: Path) -> list[str]:
                 values.extend(normalize_text(row.get(key, "")) for row in reader)
     else:
         values.extend(normalize_text(x) for x in path.read_text(encoding="utf-8").splitlines())
-    return sorted({x for x in values if x})
+    return sorted({x for x in values if x and x.lower() not in NON_MEDICAL_TOKENS})
 
 
 def similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, a.lower(), b.lower()).ratio()
 
 
-def best_lexicon_match(text: str, lexicon: list[str]) -> tuple[str, float]:
-    if not text or not lexicon:
-        return "", 0.0
+def clean_candidate(value: str) -> str:
+    value = normalize_text(value)
+    value = re.sub(r"^[^A-Za-z0-9]+|[^A-Za-z0-9]+$", "", value)
+    value = re.sub(r"\b(?:tab|tabs|tablet|cap|caps|capsule|syr|syp|inj|drop|drops|cream|oint|gel)\b", "", value, flags=re.IGNORECASE)
+    value = DOSAGE_RE.sub("", value)
+    value = FREQUENCY_RE.sub("", value)
+    value = ROUTE_RE.sub("", value)
+    return normalize_text(value)
 
-    tokens = re.findall(r"[A-Za-z][A-Za-z0-9-]*", text)
-    candidates = [text]
+
+def token_candidates(text: str) -> list[str]:
+    cleaned = clean_candidate(text)
+    tokens = re.findall(r"[A-Za-z][A-Za-z0-9-]*", cleaned)
+    candidates = [cleaned] if cleaned else []
     candidates.extend(tokens)
     if len(tokens) >= 2:
         candidates.extend(" ".join(tokens[i : i + 2]) for i in range(len(tokens) - 1))
+    seen: set[str] = set()
+    filtered: list[str] = []
+    for candidate in candidates:
+        c = clean_candidate(candidate)
+        key = c.lower()
+        if not c or key in seen or key in NON_MEDICAL_TOKENS:
+            continue
+        if len(c) <= 1:
+            continue
+        seen.add(key)
+        filtered.append(c)
+    return filtered
+
+
+def best_lexicon_match(text: str, lexicon: list[str]) -> tuple[str, float, str]:
+    if not text or not lexicon:
+        return "", 0.0, ""
+
+    candidates = token_candidates(text)
 
     best_name = ""
     best_score = 0.0
+    best_candidate = ""
     for candidate in candidates:
         for drug in lexicon:
-            score = similarity(candidate, drug)
+            candidate_l = candidate.lower()
+            drug_l = drug.lower()
+            score = similarity(candidate_l, drug_l)
+            if candidate_l == drug_l:
+                score = 1.0
+            elif candidate_l in drug_l or drug_l in candidate_l:
+                score = max(score, min(len(candidate_l), len(drug_l)) / max(len(candidate_l), len(drug_l)))
             if score > best_score:
                 best_name = drug
                 best_score = score
-    return best_name, round(best_score, 4)
+                best_candidate = candidate
+    return best_name, round(best_score, 4), best_candidate
 
 
 def parse_medical_entities(text: str, lexicon: list[str], threshold: float) -> dict[str, str | float]:
     normalized = normalize_text(text)
-    drug, score = best_lexicon_match(normalized, lexicon)
+    drug, score, matched_candidate = best_lexicon_match(normalized, lexicon)
     dosages = [normalize_text(x) for x in DOSAGE_RE.findall(normalized)]
     frequencies = [normalize_text(x).upper() for x in FREQUENCY_RE.findall(normalized)]
+    routes = [normalize_text(x).upper() for x in ROUTE_RE.findall(normalized)]
+    has_dose_info = bool(dosages or frequencies or routes)
+    is_medicine = bool(drug and score >= threshold)
+    keep = is_medicine or has_dose_info
     return {
         "ocr_text": normalized,
-        "medicine_name": drug if score >= threshold else "",
+        "medicine_name": drug if is_medicine else "",
         "medicine_match_score": score,
+        "matched_candidate": matched_candidate,
         "dosage": "; ".join(dict.fromkeys(dosages)),
         "frequency": "; ".join(dict.fromkeys(frequencies)),
-        "validation_status": "matched" if score >= threshold else "needs_review",
+        "route": "; ".join(dict.fromkeys(routes)),
+        "keep_for_output": "yes" if keep else "no",
+        "validation_status": "matched" if is_medicine else ("dose_only" if has_dose_info else "ignored_non_medicine"),
     }
 
 
@@ -667,9 +735,16 @@ def main() -> None:
     write_csv(
         args.output_dir / "predictions.csv",
         prediction_rows,
-        ["ocr_unit", "page_id", "region_id", "line_id", "word_id", "image_path", "ocr_text", "medicine_name", "medicine_match_score", "dosage", "frequency", "validation_status"],
+        ["ocr_unit", "page_id", "region_id", "line_id", "word_id", "image_path", "ocr_text", "medicine_name", "medicine_match_score", "matched_candidate", "dosage", "frequency", "route", "keep_for_output", "validation_status"],
+    )
+    filtered_rows = [row for row in prediction_rows if row.get("keep_for_output") == "yes"]
+    write_csv(
+        args.output_dir / "medicine_dosage_predictions.csv",
+        filtered_rows,
+        ["page_id", "region_id", "line_id", "word_id", "image_path", "ocr_text", "medicine_name", "medicine_match_score", "matched_candidate", "dosage", "frequency", "route", "validation_status"],
     )
     (args.output_dir / "predictions.json").write_text(json.dumps(prediction_rows, indent=2), encoding="utf-8")
+    (args.output_dir / "medicine_dosage_predictions.json").write_text(json.dumps(filtered_rows, indent=2), encoding="utf-8")
 
     print("End-to-end run complete.")
     print(f"Pages: {len(page_rows)}")
@@ -677,6 +752,7 @@ def main() -> None:
     print(f"Lines: {len(line_rows)}")
     print(f"Words: {len(word_rows)}")
     print(f"Predictions: {args.output_dir / 'predictions.csv'}")
+    print(f"Medicine/dosage only: {args.output_dir / 'medicine_dosage_predictions.csv'}")
 
 
 if __name__ == "__main__":
